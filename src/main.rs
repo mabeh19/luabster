@@ -228,11 +228,6 @@ fn parse_command(command: &str) -> Result<Vec<String>, ParseError> {
     Ok(words)
 }
 
-
-//fn parse_command(command: &str) -> Vec<String> {
-//    command.split(" ").collect()
-//}
-
 fn create_output(command: &str) -> Box<dyn Output> {
     todo!();
     
@@ -242,7 +237,9 @@ fn spawn_commands(commands: &Commands) -> Vec<std::process::Command> {
     let mut spawned_commands: Vec<std::process::Command> = Vec::new();
 
     for cmd in commands {
-        spawned_commands.push(spawn_command(cmd));
+        if check_builtin_command(cmd) == false {
+            spawned_commands.push(spawn_command(cmd));
+        }
     }
 
     return spawned_commands;
@@ -287,6 +284,28 @@ fn execute_commands(commands: &mut Vec<std::process::Command>) -> Result<Vec<std
     }
 
     return retval;
+}
+
+fn cd(command: &Command) {
+    let mut dir: String = "~".to_string();
+    if command.len() > 1 {
+        dir = command[1].clone();
+    }
+    std::env::set_current_dir(dir);
+}
+
+fn check_builtin_command(command: &Command) -> bool {
+    let mut is_builtin = true;
+    match command[0].as_str() {
+        "cd" => {
+            cd(command); 
+        },
+        _ => {
+            is_builtin = false;
+        }
+    }
+    
+    return is_builtin;
 }
 
 fn execute_command(command: &mut std::process::Command) -> Result<std::process::Child, std::io::Error>{
