@@ -6,6 +6,8 @@ use std::{
     fmt::{Display, Formatter, Result as FmtResult},
 };
 
+use home;
+use hostname;
 
 type Command = Vec<String>;
 type Commands = Vec<Command>;
@@ -24,10 +26,16 @@ const WELCOME_MSG: &str = "
     Hello, and welcome to 🦞 LAUBSTER 🦞
 ";
 
-const PROMPT: &str = "@hackerman >> ";
+const LUA_PREFIX: &str = "!";
+
+const PROMPT: &str = "@hackerman";
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("{}", WELCOME_MSG);
+
+    for (key, value) in std::env::vars() {
+        println!("{key}: {value}");
+    }
 
     loop {
         display_prompt();
@@ -62,8 +70,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn display_prompt() {
-    print!("{}", PROMPT);
-    io::stdout().flush();
+    const username_key: &str = "USER";
+
+    if let Ok(cur_dir) = std::env::current_dir() {
+        if let Ok(prompt) = hostname::get() {
+            print!("[{}@{}]: [{}] >> ", std::env::var(username_key).unwrap(), prompt.into_string().unwrap(), cur_dir.display());
+        } else {
+            print!("{} {} >> ", PROMPT, cur_dir.display());
+        }  
+        io::stdout().flush();
+    } else {
+        print!("{} ??? >> ", PROMPT);
+        io::stdout().flush();
+    }
 }
 
 fn get_input() -> String {
@@ -228,9 +247,27 @@ fn parse_command(command: &str) -> Result<Vec<String>, ParseError> {
     Ok(words)
 }
 
-fn create_output(command: &str) -> Box<dyn Output> {
-    todo!();
-    
+fn create_output(command: &str) -> Option<Box<dyn Output>> {
+    let mut output: Option<Box<dyn Output>>;
+    if command[0] == LUA_PREFIX {
+        // LUA
+        todo!();
+    } else {
+        if let Some(_index) = command.find(">>") {
+            // If we're appending
+
+        } else {
+            // If we're overwriting
+            output = Some(overwrite_file(command));
+        }
+    }
+
+    return output;
+}
+
+fn overwrite_file(command: &str) -> Box<OutFile> {
+    let file_name = command.split(">");        
+    OutFile::new(file_name[1])
 }
 
 fn spawn_commands(commands: &Commands) -> Vec<std::process::Command> {
@@ -290,6 +327,12 @@ fn cd(command: &Command) {
     let mut dir: String = "~".to_string();
     if command.len() > 1 {
         dir = command[1].clone();
+    }
+    if dir == "~" {
+        match home::home_dir() {
+            Some(p) => dir = p.display().to_string(),
+            None => println!("Home directory not found")
+        };
     }
     std::env::set_current_dir(dir);
 }
@@ -351,5 +394,21 @@ pub enum Errors {
 }
 
 pub trait Output {
+
+}
+
+struct OutFile {
+    file: std::fs::File
+}
+
+impl OutFile {
+    pub fn new(file_name: &str) -> Box<Self> {
+        Box::new(Self {
+            file: std::fs::File::create(file_name)
+        })
+    }
+}
+
+impl Output for OutFile {
 
 }
