@@ -33,10 +33,6 @@ const PROMPT: &str = "@hackerman";
 fn main() -> Result<(), Box<dyn Error>> {
     println!("{}", WELCOME_MSG);
 
-    for (key, value) in std::env::vars() {
-        println!("{key}: {value}");
-    }
-
     loop {
         display_prompt();
 
@@ -53,11 +49,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         };
 
-        let args: (Commands, Option<Box<dyn Output>>) = parse_input(&command);
+        let mut args: (Commands, Option<Box<dyn Output>>) = parse_input(&command);
 
         let mut commands = spawn_commands(&args.0);
 
-        pipe_commands(&mut commands);
+        //pipe_commands(&mut commands, &mut args.1);
 
         let mut children = execute_commands(&mut commands);
         
@@ -76,11 +72,11 @@ fn display_prompt() {
         if let Ok(prompt) = hostname::get() {
             print!("[{}@{}]: [{}] >> ", std::env::var(username_key).unwrap(), prompt.into_string().unwrap(), cur_dir.display());
         } else {
-            print!("{} {} >> ", PROMPT, cur_dir.display());
+            print!("[{}] {} >> ", PROMPT, cur_dir.display());
         }  
         io::stdout().flush();
     } else {
-        print!("{} ??? >> ", PROMPT);
+        print!("[{}] ??? >> ", PROMPT);
         io::stdout().flush();
     }
 }
@@ -103,7 +99,9 @@ fn check_quit(input: &str) -> Result<(), Errors> {
 fn parse_input(command: &str) -> (Vec<Vec<String>>, Option<Box<dyn Output>>) {
     let mut arguments: Commands = Vec::new();
     let mut output: Option<Box<dyn Output>> = None;
-    for arg in command.split("|") {
+    let mut args_and_output = command.split(">");
+
+    for arg in args_and_output.nth(0).unwrap().split("|") {
         match parse_command(arg) {
             Ok(cmd) => arguments.push(cmd),
             Err(e) => {
@@ -113,8 +111,9 @@ fn parse_input(command: &str) -> (Vec<Vec<String>>, Option<Box<dyn Output>>) {
         };
     }
 
-    if let Some(_index) = command.find(">") {
-        output = Some(create_output(command));
+    if let Some(file) = args_and_output.nth(0) {
+        log!(LogLevel::Debug, "Creating output {}\n", file);
+        output = create_output(command);
     }
 
     return (arguments, output);
@@ -249,25 +248,30 @@ fn parse_command(command: &str) -> Result<Vec<String>, ParseError> {
 
 fn create_output(command: &str) -> Option<Box<dyn Output>> {
     let mut output: Option<Box<dyn Output>>;
-    if command[0] == LUA_PREFIX {
+    if command.starts_with(LUA_PREFIX) {
         // LUA
         todo!();
     } else {
         if let Some(_index) = command.find(">>") {
             // If we're appending
-
+            todo!();
         } else {
             // If we're overwriting
-            output = Some(overwrite_file(command));
+            output = overwrite_file(command).ok();
         }
     }
 
     return output;
 }
 
-fn overwrite_file(command: &str) -> Box<OutFile> {
-    let file_name = command.split(">");        
-    OutFile::new(file_name[1])
+fn overwrite_file(command: &str) -> Result<Box<dyn Output>, Errors> {
+    let mut file_name = command.split(">");
+    let file = OutFile::new(file_name.nth(1).unwrap().trim());
+
+    match file {
+        Ok(f) => Ok(f),
+        Err(e) => Err(Errors::FileOverwriteError)
+    }
 }
 
 fn spawn_commands(commands: &Commands) -> Vec<std::process::Command> {
@@ -292,35 +296,76 @@ fn spawn_command(command: &Vec<String>) -> std::process::Command {
     return process;
 }
 
-fn pipe_commands(commands: &mut Vec<std::process::Command>) {
-    if commands.len() > 1 {
-        todo!();
+fn pipe_commands(commands: &mut Vec<std::process::Command>, outfile: &mut Option<Box<dyn Output>>) -> Result<(), Errors> {
+//    if commands.len() > 1 {
+//        do_piping(commands)?;
+//    }
+
+    if outfile.is_some() {
+        pipe_to_output(commands, outfile)?;
     }
+
+    Ok(())
+}
+
+//fn pipe_and_execute(commands: &mut Vec<std::process::Child>) -> Result<(), Errors> {
+//
+//    let mut prev_stdout: std::process::ChildStdout = std::process::inherit();
+//    for cmd in commands {
+//        cmd.stdin.set(prev_stdout);
+//        prev_stdout = cmd.stdout.take().unwrap();
+//    }
+//
+//    Ok(())
+//}
+
+fn pipe_to_output(commands: &mut Vec<std::process::Command>, outfile: &mut Option<Box<dyn Output>>) -> Result<(), Errors> {
+    if let Some(last_cmd) = commands.last_mut() {
+        let mut file_stdio = outfile.as_mut().unwrap().to_stdio();
+        last_cmd.stdout(file_stdio);
+    }
+
+    Ok(())
 }
 
 fn execute_commands(commands: &mut Vec<std::process::Command>) -> Result<Vec<std::process::Child>, std::io::Error> {
     let mut retval: Result<Vec<std::process::Child>, std::io::Error> = Err(std::io::Error::new(std::io::ErrorKind::Other, "???"));
-    let mut children: Vec<std::process::Child> = Vec::new();
-    let mut error_encountered = false;
 
-    for cmd in commands {
-        match execute_command(cmd) {
-            Ok(child) => children.push(child),
-            Err(e)    => {
-                retval = Err(e); 
-                error_encountered = true; 
-                
-                /* If an error is encountered, stop early */
-                break;
-            }
+    if let Ok((mut children, prev_stdout)) = pipe_children(commands) {
+        let mut last_cmd: &mut std::process::Command = commands.last_mut().unwrap();
+        last_cmd.stdin(prev_stdout);
+        last_cmd.stdout(std::process::Stdio::inherit());
+        match execute_command(last_cmd) {
+            Ok(mut last_child) => children.push(last_child),
+            Err(e) => return Err(e)
         };
-    }
-
-    if error_encountered == false {
         retval = Ok(children);
     }
 
     return retval;
+}
+
+fn pipe_children(commands: &mut Vec<std::process::Command>) -> Result<(Vec<std::process::Child>, std::process::Stdio), std::io::Error> {
+    let mut children: Vec<std::process::Child> = Vec::new();
+    let mut prev_stdout: std::process::Stdio = std::process::Stdio::inherit();
+    
+    for i in 0..(commands.len() - 1) {
+        let mut cmd: &mut std::process::Command = &mut commands[i];
+        cmd.stdin(prev_stdout);
+        cmd.stdout(std::process::Stdio::piped());
+        
+        match execute_command(cmd) {
+            Ok(child) => {
+                prev_stdout = child.stdout.unwrap().into();
+                children.push(child);
+            },
+            Err(e) => {
+                return Err(e); 
+            }
+        };
+    }
+    
+    Ok((children, prev_stdout))
 }
 
 fn cd(command: &Command) {
@@ -391,10 +436,13 @@ impl std::fmt::Display for LogLevel {
 pub enum Errors {
     Exit,
     NoProgramFound,
+    FileOverwriteError,
+    FileAppendError,
+    PipeFailure
 }
 
 pub trait Output {
-
+    fn to_stdio(&mut self) -> std::process::Stdio;
 }
 
 struct OutFile {
@@ -402,13 +450,14 @@ struct OutFile {
 }
 
 impl OutFile {
-    pub fn new(file_name: &str) -> Box<Self> {
-        Box::new(Self {
-            file: std::fs::File::create(file_name)
-        })
+    pub fn new(file_name: &str) -> std::io::Result<Box<Self>>  {
+        let file = std::fs::File::create(file_name)?;
+        Ok(Box::new(Self { file }))
     }
 }
 
 impl Output for OutFile {
-
+    fn to_stdio(&mut self) -> std::process::Stdio {
+        std::process::Stdio::from(self.file.try_clone().unwrap())
+    }
 }
