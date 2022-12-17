@@ -28,12 +28,16 @@ pub enum Errors {
 pub fn parse_inputs(command: &str, lua_parser: &lua_parser::LuaParser) {
     let mut args: (Commands, Option<Box<dyn Output>>) = parse_input(command);
 
-    let mut commands = spawn_commands(&args.0);
+    let mut commands = spawn_commands(&args.0, &lua_parser);
 
     match execute_commands(&mut commands, &mut args.1) {
         Ok(mut children) => wait_for_children_to_finish(children),
-        Err(e) => println!("{:?}", e)
+        Err(e) => drop(e)//println!("{:?}", e)
     };
+
+    if let Some(f) = args.1 {
+        f.close();
+    }
 }
 
 fn parse_input(command: &str) -> (Vec<Vec<String>>, Option<Box<dyn Output>>) {
@@ -42,6 +46,10 @@ fn parse_input(command: &str) -> (Vec<Vec<String>>, Option<Box<dyn Output>>) {
     let mut args_and_output = command.split(">");
 
     for arg in args_and_output.nth(0).unwrap().split("|") {
+        if is_lua_command(arg) {
+            arguments.push(vec![arg.to_owned()]);
+            continue;
+        }
         match parse_command(arg) {
             Ok(cmd) => arguments.push(cmd),
             Err(e) => {
@@ -255,13 +263,14 @@ fn append_file(command: &str) -> Result<Box<dyn Output>, Errors> {
     }
 }
 
-fn spawn_commands(commands: &Commands) -> Vec<std::process::Command> {
+fn spawn_commands(commands: &Commands, lua_parser: &lua_parser::LuaParser) -> Vec<std::process::Command> {
     let mut spawned_commands: Vec<std::process::Command> = Vec::new();
 
     for cmd in commands {
-        if check_builtin_command(cmd) == false {
-            spawned_commands.push(spawn_command(cmd));
+        if check_builtin_command(cmd) == true || lua_parser.parse(&cmd[0]) {
+            continue;
         }
+        spawned_commands.push(spawn_command(cmd));
     }
 
     return spawned_commands;
@@ -385,6 +394,7 @@ fn wait_for_children_to_finish(children: Vec<std::process::Child>) {
 
 pub trait Output {
     fn to_stdio(&mut self) -> std::process::Stdio;
+    fn close(self);
 }
 
 struct OutFile {
@@ -406,5 +416,9 @@ impl OutFile {
 impl Output for OutFile {
     fn to_stdio(&mut self) -> std::process::Stdio {
         std::process::Stdio::from(self.file.try_clone().unwrap())
+    }
+
+    fn close(self) {
+        
     }
 }

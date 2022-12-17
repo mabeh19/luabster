@@ -10,43 +10,59 @@ use crate::log::*;
 
 const LUA_PREFIX: &str = "!";
 
-const VAR_DIRECTORY_PATH: &str = "~/.luabster/";
+static mut VAR_DIRECTORY_PATH: Option<String> = None; 
 
-struct LuaParser {
+
+pub struct LuaParser {
     vars: HashMap<String, LuaVar>,
     var_dir: String,
     lua: rlua::Lua
 }
 
 impl LuaParser {
-    pub fn init() -> Self {
-        tempfile::tempdir();
+    pub fn init(home_dir: &str) -> Self 
+    {      
+        unsafe {
+            VAR_DIRECTORY_PATH = Some(format!("{}/.luabster/var/", home_dir));
+            std::fs::create_dir_all(VAR_DIRECTORY_PATH.as_ref().unwrap());
+        }
+
         Self {
             vars: HashMap::new(),
-            var_dir: VAR_DIRECTORY_PATH.to_owned(),
+            var_dir: home_dir.to_owned(),
             lua: rlua::Lua::new()
         }
     }
 
-    pub fn parse(&self, command: &str) {
-        let command = strip_prefix(command);
-        log!(LogLevel::Debug, "Parsing command: {}", command);
-        self.lua.context(|lua_ctx| {
-            lua_ctx.load(&command).exec();
-        });
+    pub fn parse(&self, command: &str) -> bool 
+    {
+        let is_lua_command = command.starts_with(LUA_PREFIX);
+
+        if is_lua_command {
+            let command = strip_prefix(command);
+            log!(LogLevel::Debug, "Parsing Lua command: {}", command);
+            self.lua.context(|lua_ctx| {
+                lua_ctx.load(&command).exec();
+            });
+        }
+
+        is_lua_command
     }
 
-    fn load_var_from_memory(&mut self, var_name: &str) {
+    fn load_var_from_memory(&mut self, var_name: &str) 
+    {
 
     }
 
-    fn save_vars_to_memory(&self) {
+    fn save_vars_to_memory(&self) 
+    {
         for v in &self.vars {
             self.save_var_to_memory(v);
         }
     }
 
-    fn save_var_to_memory(&self, var: (&String, &LuaVar)) {
+    fn save_var_to_memory(&self, var: (&String, &LuaVar)) 
+    {
         let mut path = self.var_dir.clone();
         path.push_str(var.0);
         let mut file = std::fs::File::create(path).unwrap();
@@ -57,27 +73,32 @@ impl LuaParser {
     }
 }
 
-pub fn append_to_variable(command: &str) -> Option<Box<dyn Output>> {
+pub fn append_to_variable(command: &str) -> Option<Box<dyn Output>> 
+{
     append_to_var(command)
 }
 
-pub fn output_to_variable(command: &str) -> Option<Box<dyn Output>> {
+pub fn output_to_variable(command: &str) -> Option<Box<dyn Output>> 
+{
     new_var(command)
 }
 
-fn new_var(command: &str) -> Option<Box<dyn Output>> {
+fn new_var(command: &str) -> Option<Box<dyn Output>> 
+{
     let var_name = strip_prefix(command);
     log!(LogLevel::Debug, "Outputting to new variable: {}", var_name);
     Some(Box::new(LuaVar::new(&var_name)))
 }
 
-fn append_to_var(command: &str) -> Option<Box<dyn Output>> {
+fn append_to_var(command: &str) -> Option<Box<dyn Output>> 
+{
     let var_name = strip_prefix(command); 
     log!(LogLevel::Debug, "Appending to variable: {}", var_name);
     Some(Box::new(LuaVar::new(&var_name)))
 }
 
-fn strip_prefix(command: &str) -> String {
+fn strip_prefix(command: &str) -> String 
+{
     command.replace(LUA_PREFIX, "")
 }
 
@@ -87,16 +108,24 @@ struct LuaVar {
 }
 
 impl LuaVar {
-    fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            file: tempfile::tempfile().unwrap()
+    fn new(name: &str) -> Self 
+    {
+        unsafe {
+            Self {
+                name: name.to_string(),
+                file: std::fs::File::create(format!("{}{}", VAR_DIRECTORY_PATH.as_ref().unwrap(), name)).unwrap()
+            }
         }
     }
 }
 
 impl Output for LuaVar {
-    fn to_stdio(&mut self) -> std::process::Stdio {
+    fn to_stdio(&mut self) -> std::process::Stdio 
+    {
         std::process::Stdio::from(self.file.try_clone().unwrap())
+    }
+
+    fn close(self) {
+        
     }
 }

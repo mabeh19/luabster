@@ -30,7 +30,9 @@ fn main() -> Result<(), Box<dyn Error>> {
    
     parse_args();
 
-    let lua_parser = lua_parser::LuaParser::init();
+    let home_dir = home::home_dir().unwrap().display().to_string();
+    println!("Home dir: {}", home_dir);
+    let lua_parser = lua_parser::LuaParser::init(&home_dir);
 
     loop {
         display_prompt();
