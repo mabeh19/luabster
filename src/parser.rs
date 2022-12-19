@@ -25,22 +25,20 @@ pub enum Errors {
     PipeFailure
 }
 
-pub fn parse_inputs(command: &str, lua_parser: &lua_parser::LuaParser) {
-    let mut args: (Commands, Option<Box<dyn Output>>) = parse_input(command);
+pub fn parse_inputs(command: &str, lua_parser: &mut lua_parser::LuaParser) {
+    let mut args: (Commands, Option<Box<dyn Output>>) = parse_input(command, lua_parser);
 
     let mut commands = spawn_commands(&args.0, &lua_parser);
-
+    
     match execute_commands(&mut commands, &mut args.1) {
         Ok(mut children) => wait_for_children_to_finish(children),
         Err(e) => drop(e)//println!("{:?}", e)
     };
-
-    if let Some(f) = args.1 {
-        f.close();
-    }
+    
+    lua_parser.save_vars_to_memory();
 }
 
-fn parse_input(command: &str) -> (Vec<Vec<String>>, Option<Box<dyn Output>>) {
+fn parse_input(command: &str, lua_parser: &mut lua_parser::LuaParser) -> (Vec<Vec<String>>, Option<Box<dyn Output>>) {
     let mut arguments: Commands = Vec::new();
     let mut output: Option<Box<dyn Output>> = None;
     let mut args_and_output = command.split(">");
@@ -61,7 +59,7 @@ fn parse_input(command: &str) -> (Vec<Vec<String>>, Option<Box<dyn Output>>) {
 
     if let Some(file) = args_and_output.nth(0) {
         log!(LogLevel::Debug, "Creating output {}", file);
-        output = create_output(command);
+        output = create_output(command, lua_parser);
     }
 
     return (arguments, output);
@@ -231,12 +229,12 @@ fn get_output_file(command: &str) -> OutputType {
     return out;
 }
 
-fn create_output(command: &str) -> Option<Box<dyn Output>> {
+fn create_output(command: &str, lua_parser: &mut lua_parser::LuaParser) -> Option<Box<dyn Output>> {
     let mut output: Option<Box<dyn Output>> = None;
 
     match get_output_file(command) {
-        OutputType::AppendVariable(n) => lua_parser::append_to_variable(&n),
-        OutputType::NewVariable(n)    => lua_parser::output_to_variable(&n),       
+        OutputType::AppendVariable(n) => lua_parser.append_to_variable(&n),
+        OutputType::NewVariable(n)    => lua_parser.output_to_variable(&n),       
         OutputType::AppendFile(n)     => append_file(&n).ok(),
         OutputType::OverwriteFile(n)  => overwrite_file(&n).ok(),
         OutputType::NoOutput          => None
