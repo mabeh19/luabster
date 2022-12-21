@@ -1,6 +1,7 @@
 use core::mem;
 use std::{
     process,
+    thread,
     io::{self, Write},
     error::Error,
     fmt::{Display, Formatter, Result as FmtResult},
@@ -9,10 +10,12 @@ use std::{
 pub mod parser;
 pub mod lua_parser;
 pub mod log;
+pub mod gui;
 
 use crate::{
     parser::*,
-    log::*
+    log::*,
+    gui::*,
 };
 
 use home;
@@ -33,6 +36,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let home_dir = home::home_dir().unwrap().display().to_string();
     println!("Home dir: {}", home_dir);
     let mut lua_parser = lua_parser::LuaParser::init(&home_dir);
+
+    let gui = gui::Gui::new();
 
     loop {
         display_prompt();
@@ -64,9 +69,7 @@ fn parse_args() {
         let arg = &argv[i];
         if arg == "-d" {
             let level = argv[i + 1].clone();
-            unsafe {
-                set_loglevel(arg.parse().unwrap());
-            }
+            set_loglevel(level.parse().unwrap());
         }
     }
 }
