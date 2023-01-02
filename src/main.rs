@@ -18,27 +18,19 @@ use crate::{
     gui::*,
 };
 
-use home;
-use hostname;
-
-const WELCOME_MSG: &str = "
-    Hello, and welcome to 🦞 LAUBSTER 🦞
-";
-
-
-const PROMPT: &str = "🦞 LAUBSTER 🦞";
-
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("{}", WELCOME_MSG);
+
+//    println!("{}", WELCOME_MSG);
    
     parse_args();
 
     let home_dir = home::home_dir().unwrap().display().to_string();
     println!("Home dir: {}", home_dir);
-    let mut lua_parser = lua_parser::LuaParser::init(&home_dir);
+    let lua_parser = lua_parser::LuaParser::init(&home_dir);
 
-    let gui = gui::Gui::new();
+    gui::Gui::start(lua_parser);
 
+    /*
     loop {
         display_prompt();
 
@@ -57,11 +49,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
         parser::parse_inputs(&command, &mut lua_parser);
-
     }
-
+*/
     Ok(())
 }
+
+
 
 fn parse_args() {
     let argv = std::env::args().collect::<Vec<String>>();
@@ -73,35 +66,3 @@ fn parse_args() {
         }
     }
 }
-
-fn display_prompt() {
-    const username_key: &str = "USER";
-
-    if let Ok(cur_dir) = std::env::current_dir() {
-        if let Ok(prompt) = hostname::get() {
-            print!("[{}@{}]: {} >> ", std::env::var(username_key).unwrap(), prompt.into_string().unwrap(), cur_dir.display());
-        } else {
-            print!("[{}] {} >> ", PROMPT, cur_dir.display());
-        }  
-        io::stdout().flush();
-    } else {
-        print!("[{}] ??? >> ", PROMPT);
-        io::stdout().flush();
-    }
-}
-
-fn get_input() -> String {
-    let mut input = String::new();
-    io::stdin().read_line(&mut input);
-    input = input.trim().to_string();
-    return input;
-}
-
-fn check_quit(input: &str) -> Result<(), Errors> {
-    if input == "exit" {
-        Err(Errors::Exit) 
-    } else {
-        Ok(())
-    }
-}
-

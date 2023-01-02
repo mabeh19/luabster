@@ -11,3 +11,4 @@ hostname = "*"
 tempfile = "*"
 rlua = "*"
 gtk = { version = "*", package = "gtk4" }
+gdk = { version = "*", package = "gdk4" }
