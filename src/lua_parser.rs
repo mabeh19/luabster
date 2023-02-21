@@ -1,4 +1,4 @@
-#[allow(unused, dead_code)]
+#![allow(unused, dead_code, unused_unsafe)]
 
 use std::{
     collections::HashMap,
@@ -16,38 +16,40 @@ use crate::log;
 use crate::log::*;
 
 const LUA_PREFIX: &str = "!";
-
 static mut VAR_DIRECTORY_PATH: Option<String> = None; 
 
 
 pub struct LuaParser {
     vars: Vec<(String, bool)>,
     var_dir: String,
-    lua: rlua::Lua
+    lua: rlua::Lua,
 }
 
 impl LuaParser {
     pub fn init(home_dir: &str) -> Self 
-    {      
+    {
+        
         unsafe {
             VAR_DIRECTORY_PATH = Some(format!("{}/.luabster/var/", home_dir));
             std::fs::create_dir_all(VAR_DIRECTORY_PATH.as_ref().unwrap());
         }
+        
 
         Self {
             vars: Vec::new(),
             var_dir: home_dir.to_owned(),
-            lua: rlua::Lua::new()
+            lua: rlua::Lua::new(),
         }
     }
 
-    pub fn parse(&self, command: &str) -> bool 
+    pub fn parse(&mut self, command: &str) -> bool 
     {
         let is_lua_command = command.starts_with(LUA_PREFIX);
 
         if is_lua_command {
             let command = strip_prefix(command);
             log!(LogLevel::Debug, "Parsing Lua command: {}", command);
+;
             let res: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
                 lua_ctx.load(&command).exec()?;
                 Ok(())
@@ -55,9 +57,11 @@ impl LuaParser {
 
             match res {
                 Ok(e) => drop(e),
-                Err(e) => println!("{:?}", e),
+                Err(e) => println!("{}", e),
             };
         }
+
+        
 
         is_lua_command
     }
@@ -97,7 +101,7 @@ impl LuaParser {
 
     fn load_var_from_memory(&mut self, var_name: &str) 
     {
-
+        var_name;
     }
 
     pub fn save_vars_to_memory(&mut self) 
@@ -113,6 +117,7 @@ impl LuaParser {
     {      
         unsafe {
             let file_name = format!("{}{}", VAR_DIRECTORY_PATH.as_ref().unwrap(), var.0.clone());
+            
             log!(LogLevel::Debug, "Saving variable {}", file_name);
 
             if let Ok(file_data) = std::fs::read_to_string(file_name) {

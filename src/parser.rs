@@ -1,9 +1,7 @@
 use core::mem;
 use std::{
-    process,
-    io::{self, Write},
-    error::Error,
-    fmt::{Display, Formatter, Result as FmtResult},
+    io::{stdout, Write},
+    fmt::{Display, Formatter, Result as FmtResult}
 };
 
 use crate::log;
@@ -28,10 +26,10 @@ pub enum Errors {
 pub fn parse_inputs(command: &str, lua_parser: &mut lua_parser::LuaParser) {
     let mut args: (Commands, Option<Box<dyn Output>>) = parse_input(command, lua_parser);
 
-    let mut commands = spawn_commands(&args.0, &lua_parser);
+    let mut commands = spawn_commands(&args.0, lua_parser);
     
     match execute_commands(&mut commands, &mut args.1) {
-        Ok(mut children) => wait_for_children_to_finish(children),
+        Ok( children) => wait_for_children_to_finish(children),
         Err(e) => drop(e)//println!("{:?}", e)
     };
     
@@ -230,7 +228,7 @@ fn get_output_file(command: &str) -> OutputType {
 }
 
 fn create_output(command: &str, lua_parser: &mut lua_parser::LuaParser) -> Option<Box<dyn Output>> {
-    let mut output: Option<Box<dyn Output>> = None;
+    let _output: Option<Box<dyn Output>> = None;
 
     match get_output_file(command) {
         OutputType::AppendVariable(n) => lua_parser.append_to_variable(&n),
@@ -247,7 +245,7 @@ fn overwrite_file(command: &str) -> Result<Box<dyn Output>, Errors> {
 
     match file {
         Ok(f) => Ok(f),
-        Err(e) => Err(Errors::FileOverwriteError)
+        Err(_) => Err(Errors::FileOverwriteError)
     }
 }
 
@@ -257,11 +255,11 @@ fn append_file(command: &str) -> Result<Box<dyn Output>, Errors> {
 
     match file {
         Ok(f) => Ok(f),
-        Err(e) => Err(Errors::FileAppendError)
+        Err(_) => Err(Errors::FileAppendError)
     }
 }
 
-fn spawn_commands(commands: &Commands, lua_parser: &lua_parser::LuaParser) -> Vec<std::process::Command> {
+fn spawn_commands(commands: &Commands, lua_parser: &mut lua_parser::LuaParser) -> Vec<std::process::Command> {
     let mut spawned_commands: Vec<std::process::Command> = Vec::new();
 
     for cmd in commands {
@@ -286,7 +284,7 @@ fn spawn_command(command: &Vec<String>) -> std::process::Command {
 
 fn pipe_to_output(last_command: &mut std::process::Command, outfile: &mut Option<Box<dyn Output>>) -> Result<(), Errors> {
     
-    let mut file_stdio = outfile.as_mut().unwrap().to_stdio();
+    let file_stdio = outfile.as_mut().unwrap().to_stdio();
     last_command.stdout(file_stdio);
     
     Ok(())
@@ -297,12 +295,12 @@ fn execute_commands(commands: &mut Vec<std::process::Command>, outfile: &mut Opt
     
     if commands.len() > 0 {
         if let Ok((mut children, prev_stdout)) = pipe_children(commands) {
-            let mut last_cmd: &mut std::process::Command = commands.last_mut().unwrap();
+            let last_cmd: &mut std::process::Command = commands.last_mut().unwrap();
             last_cmd.stdin(prev_stdout);
             
             if outfile.is_some() {
                 if let Err(e) = pipe_to_output(last_cmd, outfile) {
-                    println!("{:?}", e);
+                    write!(stdout(), "{:?}", e)?;
                     return retval;
                 }
             } else {
@@ -310,7 +308,7 @@ fn execute_commands(commands: &mut Vec<std::process::Command>, outfile: &mut Opt
             }
 
             match execute_command(last_cmd) {
-                Ok(mut last_child) => children.push(last_child),
+                Ok(last_child) => children.push(last_child),
                 Err(e) => return Err(e)
             };
             retval = Ok(children);
@@ -327,7 +325,7 @@ fn pipe_children(commands: &mut Vec<std::process::Command>) -> Result<(Vec<std::
     let mut prev_stdout: std::process::Stdio = std::process::Stdio::inherit();
 
     for i in 0..(commands.len() - 1) {
-        let mut cmd: &mut std::process::Command = &mut commands[i];
+        let cmd: &mut std::process::Command = &mut commands[i];
         cmd.stdin(prev_stdout);
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::inherit());
@@ -360,7 +358,9 @@ fn cd(command: &Command) {
             None => println!("Home directory not found")
         };
     }
-    std::env::set_current_dir(dir);
+    if let Err(e) = std::env::set_current_dir(dir) {
+        println!("{}\r\n", e);
+    }
 }
 
 fn check_builtin_command(command: &Command) -> bool {
@@ -385,7 +385,9 @@ fn execute_command(command: &mut std::process::Command) -> Result<std::process::
 
 fn wait_for_children_to_finish(children: Vec<std::process::Child>) {
     for cmd in children {
-        cmd.wait_with_output();
+        if let Err(e) = cmd.wait_with_output() {
+            println!("{}", e);
+        }
     }
 }
 

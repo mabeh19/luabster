@@ -10,4 +10,4 @@ home = "*"
 hostname = "*"
 tempfile = "*"
 rlua = "*"
-gtk = { version = "*", package = "gtk4" }
+crossterm = "*"

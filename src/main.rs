@@ -1,21 +1,20 @@
-use core::mem;
+#![allow(dead_code)]
+
 use std::{
-    process,
-    thread,
     io::{self, Write},
     error::Error,
-    fmt::{Display, Formatter, Result as FmtResult},
 };
 
 pub mod parser;
 pub mod lua_parser;
 pub mod log;
-pub mod gui;
+pub mod termio;
+//pub mod gui;
+pub mod input_parser;
 
 use crate::{
     parser::*,
     log::*,
-    gui::*,
 };
 
 use home;
@@ -29,24 +28,29 @@ const WELCOME_MSG: &str = "
 const PROMPT: &str = "🦞 LAUBSTER 🦞";
 
 fn main() -> Result<(), Box<dyn Error>> {
+
     println!("{}", WELCOME_MSG);
    
     parse_args();
 
     let home_dir = home::home_dir().unwrap().display().to_string();
-    println!("Home dir: {}", home_dir);
     let mut lua_parser = lua_parser::LuaParser::init(&home_dir);
-
-    let gui = gui::Gui::new();
+    let mut cmd_history = Vec::new();
 
     loop {
         display_prompt();
 
-        let command = get_input();
+        let command = input_parser::get_input();
+
+        if command.is_empty() {
+            continue;
+        }
+
+        cmd_history.push(command.clone());
 
         log!(LogLevel::Debug, "Input received: {}", command);
 
-        match check_quit(&command) {
+        match input_parser::check_quit(&command) {
             Err(e) => {
                 println!("{:?}", e);
                 break;
@@ -75,33 +79,18 @@ fn parse_args() {
 }
 
 fn display_prompt() {
-    const username_key: &str = "USER";
+    const USERNAME_KEY: &str = "USER";
 
     if let Ok(cur_dir) = std::env::current_dir() {
         if let Ok(prompt) = hostname::get() {
-            print!("[{}@{}]: {} >> ", std::env::var(username_key).unwrap(), prompt.into_string().unwrap(), cur_dir.display());
+            print!("[{}@{}] {} >> ", std::env::var(USERNAME_KEY).unwrap(), prompt.into_string().unwrap(), cur_dir.display());
         } else {
             print!("[{}] {} >> ", PROMPT, cur_dir.display());
         }  
-        io::stdout().flush();
+        io::stdout().flush().expect("");
     } else {
         print!("[{}] ??? >> ", PROMPT);
-        io::stdout().flush();
-    }
-}
-
-fn get_input() -> String {
-    let mut input = String::new();
-    io::stdin().read_line(&mut input);
-    input = input.trim().to_string();
-    return input;
-}
-
-fn check_quit(input: &str) -> Result<(), Errors> {
-    if input == "exit" {
-        Err(Errors::Exit) 
-    } else {
-        Ok(())
+        io::stdout().flush().expect("");
     }
 }
 

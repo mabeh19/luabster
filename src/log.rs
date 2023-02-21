@@ -1,21 +1,14 @@
 #![macro_use]
-use core::mem;
-use std::{
-    process,
-    io::{self, Write},
-    error::Error,
-    fmt::{Display, Formatter, Result as FmtResult},
-};
-
 pub static mut LOG_LEVEL: LogLevel = LogLevel::Debug;
 
 #[macro_export]
 macro_rules! log {
     ( $level:expr, $( $fmt:expr ),* ) => {
+        #[cfg(debug_assertions)]
         unsafe {
             if ($level as usize) >= (LOG_LEVEL as usize) {
                 print!("[{}] ", $level);
-                println!( $( $fmt, )* );
+                println!($( $fmt, )* );
             }
         }
     };
@@ -61,7 +54,6 @@ impl std::fmt::Display for LogLevel {
             Self::Warn  => name = "Warn ",
             Self::Error => name = "Error",
             Self::Fatal => name = "Fatal",
-            _           => name = "?????"
         };
         write!(f, "{}", name)
     }
