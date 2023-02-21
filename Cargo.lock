@@ -127,7 +127,12 @@ dependencies = [
 name = "luabster"
 version = "0.1.0"
 dependencies = [
+<<<<<<< HEAD
  "crossterm",
+=======
+ "gdk4",
+ "gtk4",
+>>>>>>> refs/remotes/origin/main
  "home",
  "hostname",
  "rlua",

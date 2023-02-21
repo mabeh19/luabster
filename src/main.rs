@@ -17,26 +17,28 @@ use crate::{
     log::*,
 };
 
-use home;
-use hostname;
-
-const WELCOME_MSG: &str = "
-    Hello, and welcome to 🦞 LAUBSTER 🦞
-";
-
-
-const PROMPT: &str = "🦞 LAUBSTER 🦞";
-
 fn main() -> Result<(), Box<dyn Error>> {
 
+<<<<<<< HEAD
     println!("{}", WELCOME_MSG);
+=======
+//    println!("{}", WELCOME_MSG);
+>>>>>>> refs/remotes/origin/main
    
     parse_args();
 
     let home_dir = home::home_dir().unwrap().display().to_string();
+<<<<<<< HEAD
     let mut lua_parser = lua_parser::LuaParser::init(&home_dir);
     let mut cmd_history = Vec::new();
+=======
+    println!("Home dir: {}", home_dir);
+    let lua_parser = lua_parser::LuaParser::init(&home_dir);
 
+    gui::Gui::start(lua_parser);
+>>>>>>> refs/remotes/origin/main
+
+    /*
     loop {
         display_prompt();
 
@@ -61,11 +63,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
         parser::parse_inputs(&command, &mut lua_parser);
-
     }
-
+*/
     Ok(())
 }
+
+
 
 fn parse_args() {
     let argv = std::env::args().collect::<Vec<String>>();
@@ -77,6 +80,7 @@ fn parse_args() {
         }
     }
 }
+<<<<<<< HEAD
 
 fn display_prompt() {
     const USERNAME_KEY: &str = "USER";
@@ -94,3 +98,5 @@ fn display_prompt() {
     }
 }
 
+=======
+>>>>>>> refs/remotes/origin/main
