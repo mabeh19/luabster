@@ -357,6 +357,8 @@ fn cd(command: &Command) {
             Some(p) => dir = p.display().to_string(),
             None => println!("Home directory not found")
         };
+    } else {
+        dir = dir.replace("~", &home::home_dir().unwrap().display().to_string());
     }
     if let Err(e) = std::env::set_current_dir(dir) {
         println!("{}\r\n", e);

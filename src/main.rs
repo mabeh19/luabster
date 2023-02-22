@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_parser = input_parser::InputParser::new(&home_dir);
     
     loop {
-        display_prompt();
+        display_prompt(&home_dir);
 
         let command = input_parser.get_input();
 
@@ -74,12 +74,13 @@ fn parse_args() {
     }
 }
 
-fn display_prompt() {
+fn display_prompt(home_dir: &str) {
     const USERNAME_KEY: &str = "USER";
 
     if let Ok(cur_dir) = std::env::current_dir() {
         if let Ok(prompt) = hostname::get() {
-            print!("[{}@{}] {} >> ", std::env::var(USERNAME_KEY).unwrap(), prompt.into_string().unwrap(), cur_dir.display());
+            let current_dir = cur_dir.to_string_lossy().replace(home_dir, "~");
+            print!("[{}@{}] {} >> ", std::env::var(USERNAME_KEY).unwrap(), prompt.into_string().unwrap(), current_dir);
         } else {
             print!("[{}] {} >> ", PROMPT, cur_dir.display());
         }  
