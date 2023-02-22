@@ -31,7 +31,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let home_dir = home::home_dir().unwrap().display().to_string();
     let mut lua_parser = lua_parser::LuaParser::init(&home_dir);
-    let mut input_parser = input_parser::InputParser::new(&home_dir);
+    let max_history_len = 1000;
+    let mut input_parser = input_parser::InputParser::new(&home_dir, max_history_len);
     
     loop {
         display_prompt(&home_dir);
@@ -41,7 +42,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         if command.is_empty() {
             continue;
         }
-
 
         log!(LogLevel::Debug, "Input received: {}", command);
 
@@ -55,7 +55,36 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         };
 
-        parser::parse_inputs(&command, &mut lua_parser);
+        if let Err(e) = parser::parse_inputs(&command, &mut lua_parser) {
+            match e {
+                Errors::NoProgramFound(p) => {
+                    println!("🦞`{}` not found 🦞", p);
+                    println!("Did you mean...");
+                    let (b_corr, b_corr_p) = parser::get_possible_correction(&p);
+                    
+                    //let l_corr = lua_parser.get_possible_correction(&p);
+                    
+                    let options = [
+                        &format!("{} in {}", b_corr, b_corr_p),
+                        //&format!("{} in lua", l_corr),
+                        "Edit",
+                        "Abort"
+                    ];
+
+                    match termio::get_choice(&options, false) {
+                        Ok(c) => {
+
+                        },
+                        Err(e) => {
+                            println!("{:?}", e);
+                        }
+                    }
+                },
+                _ => {
+                    println!("{:?}", e);
+                }
+            }
+        }
     }
 
     Ok(())

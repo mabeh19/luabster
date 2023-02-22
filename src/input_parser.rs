@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::fs;
 use crate::parser::Errors;
+
+#[cfg(debug_assertions)]
 use crate::log::*;
 use crate::termio;
 
@@ -43,20 +45,24 @@ pub struct InputParser {
 
 impl InputParser {
     
-    pub fn new(home_dir: &str) -> Self {
+    pub fn new(home_dir: &str, max_history_len: usize) -> Self {
         let mut me = Self {
             history: VecDeque::new(),
             history_path: format!("{}/{}", home_dir, HISTORY_FILE)
         };
 
-        me.load_history();
+        me.load_history(max_history_len);
 
         me
     }
 
-    fn load_history(&mut self) {
+    fn load_history(&mut self, max_history_len: usize) {
         if let Ok(content) = fs::read_to_string(&self.history_path) {
             self.history = content.split("\n").map(|substr| substr.to_owned()).collect();
+
+            if self.history.len() > max_history_len {
+                self.history.truncate(max_history_len);
+            }
         }
     }
 
@@ -144,3 +150,4 @@ fn new_line_expected(input: &mut String, scope_level: &mut usize) -> bool {
 
     contains_keyword(input, scope_level) || *scope_level > 0
 }
+

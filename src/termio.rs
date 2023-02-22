@@ -43,7 +43,6 @@ pub fn get_line(history: &mut VecDeque<String>, retain: bool) -> Result<String> 
     let start_offset = start_position.0;
     let mut cursor_pos: u16 = string.len() as u16;
     let mut history_index = 0;
-    //let mut new_cmd_backup: &str;
     
     history.push_front("".to_string());
 
@@ -132,7 +131,7 @@ pub fn get_line(history: &mut VecDeque<String>, retain: bool) -> Result<String> 
     }
     
     if retain {
-        queue!(stdout(), style::Print(format!("\r\n")))?;
+        queue!(stdout(), style::Print(format!("{}\r\n", string)))?;
     } else {
         queue!(stdout(), cursor::MoveTo(start_position.0, start_position.1), terminal::Clear(ClearType::FromCursorDown))?;
     }
@@ -140,6 +139,9 @@ pub fn get_line(history: &mut VecDeque<String>, retain: bool) -> Result<String> 
     stdout().flush()?;
 
     crossterm::terminal::disable_raw_mode()?;
+
+    history.pop_front();
+    history.push_front(string.clone());
 
     Ok(string)
 }

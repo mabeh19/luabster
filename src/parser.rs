@@ -1,30 +1,42 @@
 use core::mem;
 use std::{
     io::{stdout, Write},
-    fmt::{Display, Formatter, Result as FmtResult}
+    fmt::{Display, Formatter, Result as FmtResult},
+    os::unix::io::*, 
+    env,
 };
 
 use crate::log;
+#[cfg(debug_assertions)]
 use crate::log::*;
 use crate::lua_parser;
+
+use itertools::Itertools;
+use strsim;
 
 type Command = Vec<String>;
 type Commands = Vec<Command>;
 
 const LUA_PREFIX: &str = "!";
+const STR_SIM_THRESHOLD: f64 = 0.95;
 
-
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Errors {
     Exit,
-    NoProgramFound,
+    NoProgramFound(String),
     FileOverwriteError,
     FileAppendError,
     PipeFailure
 }
 
-pub fn parse_inputs(command: &str, lua_parser: &mut lua_parser::LuaParser) {
+pub fn parse_inputs(command: &str, lua_parser: &mut lua_parser::LuaParser) -> Result<(), Errors> {
     let mut args: (Commands, Option<Box<dyn Output>>) = parse_input(command, lua_parser);
+
+    for arg in &args.0 {
+        if check_validity_of_program(&arg) == false {
+            return Err(Errors::NoProgramFound(arg[0].clone()));
+        }
+    }
 
     let mut commands = spawn_commands(&args.0, lua_parser);
     
@@ -34,6 +46,8 @@ pub fn parse_inputs(command: &str, lua_parser: &mut lua_parser::LuaParser) {
     };
     
     lua_parser.save_vars_to_memory();
+
+    Ok(())
 }
 
 fn parse_input(command: &str, lua_parser: &mut lua_parser::LuaParser) -> (Vec<Vec<String>>, Option<Box<dyn Output>>) {
@@ -55,6 +69,7 @@ fn parse_input(command: &str, lua_parser: &mut lua_parser::LuaParser) -> (Vec<Ve
         };
     }
 
+    #[allow(unused_variables)]
     if let Some(file) = args_and_output.nth(0) {
         log!(LogLevel::Debug, "Creating output {}", file);
         output = create_output(command, lua_parser);
@@ -318,7 +333,6 @@ fn execute_commands(commands: &mut Vec<std::process::Command>, outfile: &mut Opt
     return retval;
 }
 
-use std::os::unix::io::*;
 
 fn pipe_children(commands: &mut Vec<std::process::Command>) -> Result<(Vec<std::process::Child>, std::process::Stdio), std::io::Error> {
     let mut children: Vec<std::process::Child> = Vec::new();
@@ -423,4 +437,95 @@ impl Output for OutFile {
     fn close(self) {
         
     }
+}
+
+fn command_is_valid(dir: &str, path: &str) -> bool {
+    let path_to_check = std::path::Path::new(&format!("{}/{}", dir, path)).to_owned();
+    match std::path::Path::try_exists(&path_to_check) {
+        Ok(b) => if b { return true },
+        Err(e) => {
+            println!("{}", e);
+        }
+    }
+    
+    false
+}
+
+fn check_validity_of_program(command: &Command) -> bool {
+
+    if check_builtin_command(command) {
+        return true;
+    }
+
+    if command_is_valid("", &command[0]) {
+        return true;
+    }
+
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in path.split(":") {
+            if command_is_valid(dir, &command[0]) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn check_for_possible_correction_in_dir(dir: &str, inp: &str) -> Option<(String, String)> {
+
+    let dir_path = std::path::Path::new(dir);
+
+    if let Err(e) = std::fs::read_dir(dir_path) {
+        println!("{:?}", e);
+        return None;
+    }
+
+    for f in std::fs::read_dir(dir_path).unwrap().sorted_by(|a, b| a.as_ref().unwrap().file_name().cmp(&b.as_ref().unwrap().file_name())) {
+        if let Ok(entry) = f {
+            let option = entry.file_name();
+
+            log!(LogLevel::Debug, "Comparing {} to {}", inp, option.to_string_lossy());
+
+            if strsim::jaro_winkler(inp, &option.to_string_lossy()) > STR_SIM_THRESHOLD {
+                return Some((option.to_string_lossy().to_string(), dir.to_string()));
+            }
+        }
+    }
+
+    None
+}
+
+fn has_posible_correction_in_same_dir(inp: &str) -> Option<(String, String)> {
+
+    if let Ok(cur_dir) = env::current_dir() {
+        return check_for_possible_correction_in_dir(&cur_dir.to_string_lossy(), inp);
+    }
+
+    None
+}
+
+#[allow(non_snake_case)]
+fn has_possible_correction_in_PATH(inp: &str) -> Option<(String, String)> {
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in path.split(":") {
+            if let Some(opt) = check_for_possible_correction_in_dir(dir, inp) {
+                return Some(opt);
+            }
+        }
+    }
+
+    None
+}
+
+
+pub fn get_possible_correction(inp: &str) -> (String, String) {
+
+    if let Some(correction) = has_posible_correction_in_same_dir(inp) {
+        return correction;
+    } else if let Some(correction) = has_possible_correction_in_PATH(inp) {
+        return correction;
+    }
+
+    ("No solution found".to_string(), "file system".to_string())
 }
