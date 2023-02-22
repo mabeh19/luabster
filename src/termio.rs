@@ -200,6 +200,15 @@ pub fn get_choice(options: &[&str], retain: bool) -> Result<usize> {
             KeyCode::Enter => {
                 break;
             },
+            KeyCode::Char(c) => {
+                if c.is_digit(10) {
+                    if let Some(d) = c.to_digit(10) {
+                        if d < options.len() as u32 {
+                            return Ok(d as usize);
+                        }
+                    }
+                }
+            }
             _ => (),
         };   
     }
