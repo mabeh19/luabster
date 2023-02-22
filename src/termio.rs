@@ -1,4 +1,4 @@
-use std::io::{stdout, Write};
+use std::{io::{stdout, Write}, collections::VecDeque};
 
 pub use crossterm::{
     cursor,
@@ -13,7 +13,7 @@ pub fn prompt_for_input(prompt: &str, retain: bool) -> Result<String> {
     print!("{}", prompt);
     std::io::stdout().flush()?;
 
-    let res = get_line(retain);
+    let res = get_line(&mut VecDeque::new(), retain);
 
     res
 }
@@ -34,7 +34,7 @@ fn get_input() -> Result<KeyCode> {
     }
 }
 
-pub fn get_line(retain: bool) -> Result<String> {
+pub fn get_line(history: &mut VecDeque<String>, retain: bool) -> Result<String> {
     crossterm::terminal::enable_raw_mode()?;
 
     let mut string = String::new();
@@ -42,6 +42,10 @@ pub fn get_line(retain: bool) -> Result<String> {
     let start_position = cursor::position().unwrap(); 
     let start_offset = start_position.0;
     let mut cursor_pos: u16 = string.len() as u16;
+    let mut history_index = 0;
+    //let mut new_cmd_backup: &str;
+    
+    history.push_front("".to_string());
 
     loop {
         queue!(
@@ -85,11 +89,25 @@ pub fn get_line(retain: bool) -> Result<String> {
                 cursor_pos = string.len() as u16;
                 None
             },
+            KeyCode::Up => {
+                sat_add_usize(&mut history_index, 1, history.len() - 1);
+                string = history.get(history_index).expect("Index error in history").to_string();
+                cursor_pos = string.len() as u16;
+
+                None
+            },
+            KeyCode::Down => {
+                history_index = history_index.saturating_sub(1);
+                string = history.get(history_index).expect("Index error in history").to_string();
+                cursor_pos = string.len() as u16;
+            
+                None
+            }
+
             _ => None
         };
         
        
-
         if let Some(inp) = inp {
             string.insert(cursor_pos.into(), inp);
             cursor_pos += 1;
@@ -105,6 +123,12 @@ pub fn get_line(retain: bool) -> Result<String> {
         )?;
 
         stdout().flush()?;
+
+        if history_index == 0 {
+            if let Some(front) = history.get_mut(0) {
+                *front = string.clone();
+            }
+        }
     }
     
     if retain {

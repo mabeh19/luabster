@@ -1,7 +1,12 @@
+use std::collections::VecDeque;
+use std::fs;
 use crate::parser::Errors;
 use crate::log::*;
 use crate::termio;
 
+use itertools::Itertools;
+
+const HISTORY_FILE: &str = ".luabster/.history";
 const KEYWORDS_SCOPE_INCREASE: [&'static str; 8] = [
     "function",
     "if",
@@ -30,6 +35,82 @@ const KEYWORDS: [&'static str; 6] = [
     "]]",
     "coproc"
 ];
+
+pub struct InputParser {
+    history: VecDeque<String>,
+    history_path: String
+}
+
+impl InputParser {
+    
+    pub fn new(home_dir: &str) -> Self {
+        let mut me = Self {
+            history: VecDeque::new(),
+            history_path: format!("{}/{}", home_dir, HISTORY_FILE)
+        };
+
+        me.load_history();
+
+        me
+    }
+
+    fn load_history(&mut self) {
+        if let Ok(content) = fs::read_to_string(&self.history_path) {
+            self.history = content.split("\n").map(|substr| substr.to_owned()).collect();
+        }
+    }
+
+    fn save_history(&self) -> Result<(), Box<dyn std::error::Error>> {
+        fs::write(
+            &self.history_path,
+            self.history.iter().join("\n").as_bytes()
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_input(&mut self) -> String {
+        let mut full_input = String::new();
+        let mut scope = 0;
+        
+        loop {
+            let mut input = self.get_line();
+            let new_line_expected = new_line_expected(&mut input, &mut scope);
+
+            full_input.push_str(&input);
+
+            if new_line_expected == false {
+                break;
+            }
+
+            input.clear();
+        }
+
+        return full_input;
+    }
+
+    pub fn check_quit(&self, input: &str) -> Result<(), Errors> {
+        if input == "exit" {
+            match self.save_history() {
+                Err(e) => println!("Unable to save history: {:?}", e),
+                Ok(_) => {
+                    log!(LogLevel::Debug, "Saved history to {}!", self.history_path);
+                }
+            };
+            Err(Errors::Exit) 
+        } else {
+            Ok(())
+        }
+    }
+
+    fn get_line(&mut self) -> String {
+
+        let input = termio::get_line(&mut self.history, true).unwrap();
+
+        return input.trim().to_string();
+    }
+
+}
 
 fn contains_keyword(input: &str, scope_level: &mut usize) -> bool {
     for k in KEYWORDS_SCOPE_INCREASE {
@@ -63,54 +144,3 @@ fn new_line_expected(input: &mut String, scope_level: &mut usize) -> bool {
 
     contains_keyword(input, scope_level) || *scope_level > 0
 }
-
-pub fn get_input() -> String {
-    let mut full_input = String::new();
-    let mut scope = 0;
-    
-    loop {
-        let mut input = get_line();
-        let new_line_expected = new_line_expected(&mut input, &mut scope);
-
-        full_input.push_str(&input);
-
-        if new_line_expected == false {
-            break;
-        }
-
-        input.clear();
-    }
-
-    return full_input;
-}
-
-pub fn check_quit(input: &str) -> Result<(), Errors> {
-    if input == "exit" {
-        Err(Errors::Exit) 
-    } else {
-        Ok(())
-    }
-}
-/*
-if (key == ) {
-        process.stdout.write('up'); 
-    }
-    if (key == '\u001B\u005B\u0043') {
-        process.stdout.write('right'); 
-    }
-    if (key == '\u001B\u005B\u0042') {
-        process.stdout.write('down'); 
-    }
-    if (key == '\u001B\u005B\u0044') {
-        process.stdout.write('left'); 
-    }
-*/
-fn get_line() -> String {
-
-    let input = termio::get_line(true).unwrap();
-    //io::stdin().read_line(&mut input).expect("Failed to read input");
-
-    return input.trim().to_string();
-}
-
-
