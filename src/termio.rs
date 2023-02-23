@@ -1,5 +1,6 @@
-use std::{io::{stdout, Write}, collections::VecDeque};
+use std::{io::{stdout, Write}, collections::VecDeque, env::current_dir};
 
+use itertools::Itertools;
 pub use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent},
@@ -8,12 +9,14 @@ pub use crossterm::{
     Command, Result,
 };
 
+const CMD_SIM_THRESHOLD: f64 = 0.8;
+
 
 pub fn prompt_for_input(prompt: &str, retain: bool) -> Result<String> {
     print!("{}", prompt);
     std::io::stdout().flush()?;
 
-    let res = get_line(&mut VecDeque::new(), retain);
+    let res = get_line(None, &mut VecDeque::new(), retain);
 
     res
 }
@@ -34,25 +37,21 @@ fn get_input() -> Result<KeyCode> {
     }
 }
 
-pub fn get_line(history: &mut VecDeque<String>, retain: bool) -> Result<String> {
+pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, retain: bool) -> Result<String> {
     crossterm::terminal::enable_raw_mode()?;
 
-    let mut string = String::new();
-    let screen_size = terminal::size().unwrap();
+    let mut string = if start_string.is_some() { start_string.unwrap().to_string() } else { String::new() };
     let start_position = cursor::position().unwrap(); 
-    let start_offset = start_position.0;
     let mut cursor_pos: u16 = string.len() as u16;
     let mut history_index = 0;
+
     
-    history.push_front("".to_string());
+    history.push_front(string.clone());
 
     loop {
-        queue!(
-            stdout(),
-            style::ResetColor,
-            cursor::MoveTo(start_position.0, start_position.1),
-            terminal::Clear(ClearType::FromCursorDown)
-        )?;
+        show_string(&string, start_position, cursor_pos)?;
+
+        stdout().flush()?;
 
         let inp = match get_input()? {
             KeyCode::Char(c) => Some(c),
@@ -101,8 +100,20 @@ pub fn get_line(history: &mut VecDeque<String>, retain: bool) -> Result<String> 
                 cursor_pos = string.len() as u16;
             
                 None
-            }
+            },
+            KeyCode::Tab => {
+                let possibilities = get_possibilities(&string);
 
+                if possibilities.len() == 1 {
+                    string = possibilities[0].clone();
+                    cursor_pos = string.len() as u16;
+
+                } else if possibilities.len() > 0 {
+                    show_possibilities(&possibilities, calc_cursor_screen_pos(start_position, cursor_pos));
+                }
+
+                None
+            },
             _ => None
         };
         
@@ -112,17 +123,6 @@ pub fn get_line(history: &mut VecDeque<String>, retain: bool) -> Result<String> 
             cursor_pos += 1;
         }
 
-        let cursor_col = (start_offset + cursor_pos) % screen_size.0;
-        let cursor_row = start_position.1 + (start_offset + cursor_pos) / screen_size.0;
-
-        queue!(
-            stdout(),
-            style::Print(&string),
-            cursor::MoveTo(cursor_col, cursor_row)
-        )?;
-
-        stdout().flush()?;
-
         if history_index == 0 {
             if let Some(front) = history.get_mut(0) {
                 *front = string.clone();
@@ -131,9 +131,9 @@ pub fn get_line(history: &mut VecDeque<String>, retain: bool) -> Result<String> 
     }
     
     if retain {
-        queue!(stdout(), style::Print(format!("{}\r\n", string)))?;
+        execute!(stdout(), style::Print(format!("\r\n")))?;
     } else {
-        queue!(stdout(), cursor::MoveTo(start_position.0, start_position.1), terminal::Clear(ClearType::FromCursorDown))?;
+        execute!(stdout(), cursor::MoveTo(start_position.0, start_position.1), terminal::Clear(ClearType::FromCursorDown))?;
     }
 
     stdout().flush()?;
@@ -146,6 +146,71 @@ pub fn get_line(history: &mut VecDeque<String>, retain: bool) -> Result<String> 
     Ok(string)
 }
 
+fn calc_cursor_screen_pos(start_position: (u16, u16), cursor_pos: u16) -> (u16, u16) {
+    let screen_size = terminal::size().unwrap();
+    let start_offset = start_position.0;
+    let cursor_col = (start_offset + cursor_pos) % screen_size.0;
+    let cursor_row = start_position.1 + (start_offset + cursor_pos) / screen_size.0;
+
+    (cursor_col, cursor_row)
+}
+
+fn show_string(string: &str, start_position: (u16, u16), cursor_pos: u16) -> Result<()> {
+    
+    let (cursor_col, cursor_row) = calc_cursor_screen_pos(start_position, cursor_pos);
+
+    queue!(
+        stdout(),
+        style::ResetColor,
+        cursor::MoveTo(start_position.0, start_position.1),
+        terminal::Clear(ClearType::FromCursorDown),
+        style::Print(&string),
+        cursor::MoveTo(cursor_col, cursor_row)
+    )?;
+
+    Ok(())
+}
+
+fn get_possibilities(string: &str) -> Vec<String> {
+    get_similar_commands(string)   
+}
+
+fn get_max_options_per_line(max_str_len: usize) -> usize {
+    if max_str_len == 0 {
+        return 0;
+    }
+    let screen_size = terminal::size().unwrap();
+    let max_options_per_line = screen_size.0 / (max_str_len as u16);
+    let total_width = max_options_per_line + 2 * (max_options_per_line - 1);
+    if total_width > screen_size.0 {
+        (max_options_per_line - 1) as usize
+    } else {
+        max_options_per_line as usize
+    }
+}
+
+fn show_possibilities(strings: &[String], cursor_position: (u16, u16)) {
+    let longest_option = strings.iter().fold(0, |max_str_len, s| {
+        s.len().max(max_str_len)
+    });
+
+    let max_options_per_line = get_max_options_per_line(longest_option);
+
+    strings.chunks(max_options_per_line).for_each(|c| {
+        let string = c.join("  ");
+        
+        _ = execute!(
+            stdout(),
+            cursor::MoveToNextLine(1),
+            style::Print(string)
+        );
+    });
+
+    _ = execute!(
+        stdout(),
+        cursor::MoveTo(cursor_position.0, cursor_position.1)
+    );
+}
 
 fn sat_add(lhs: &mut u16, rhs: u16, upper_bound: u16) {
     *lhs += if (*lhs + rhs) > upper_bound { 0 } else { rhs } 
@@ -229,6 +294,81 @@ pub fn get_choice(options: &[&str], retain: bool) -> Result<usize> {
     crossterm::terminal::disable_raw_mode()?;
 
     Ok(choice)
+}
+
+
+
+pub fn edit_command(command: &mut String) -> Result<()> {
+    *command = get_line(Some(command), &mut VecDeque::new(), true)?;
+
+    Ok(())
+}
+
+fn get_similar_commands_in_dir(dir: &str, command: &str) -> Vec<String> {
+    
+    let mut similar_commands = Vec::new();
+    let dir_path = std::path::Path::new(dir);
+
+    if let Err(_) = std::fs::read_dir(dir_path) {
+        return similar_commands;
+    }
+
+    for f in std::fs::read_dir(dir_path).unwrap() {
+        if let Ok(entry) = f {
+            let option = entry.file_name().to_string_lossy().to_string();
+
+            if strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
+                similar_commands.push(option);
+            }
+        }
+    }
+
+    similar_commands
+}
+
+fn get_similar_builtin_commands(command: &str) -> Vec<String> {
+const BUILTIN_COMMANDS: [&str; 2] = [
+        "exit",
+        "cd"
+];
+
+    let mut similar_commands = Vec::new();
+
+    for option in BUILTIN_COMMANDS {
+        if strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
+            similar_commands.push(option.to_string());
+        }
+    }
+
+    similar_commands
+}
+
+fn get_similar_commands(command: &str) -> Vec<String> {
+    let mut similar_commands = Vec::new();
+
+    similar_commands.append(
+        &mut get_similar_builtin_commands(command)
+    );
+
+    // Check directories in PATH
+    if let Ok(env_path) = std::env::var("PATH") {
+        env_path.split(":").for_each(|dir| {
+            similar_commands.append(
+                &mut get_similar_commands_in_dir(dir, command)
+            );
+        })
+    }
+
+    // Check current directory
+    similar_commands.append(
+        &mut get_similar_commands_in_dir(&current_dir().unwrap().to_string_lossy(), command)
+    );
+
+    // Sort alphabetically and remove duplicates
+    similar_commands.sort();
+    similar_commands.dedup();
+
+    similar_commands
 }
 
 

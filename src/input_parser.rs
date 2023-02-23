@@ -111,7 +111,7 @@ impl InputParser {
 
     fn get_line(&mut self) -> String {
 
-        let input = termio::get_line(&mut self.history, true).unwrap();
+        let input = termio::get_line(None, &mut self.history, true).unwrap();
 
         return input.trim().to_string();
     }

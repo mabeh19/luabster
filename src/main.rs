@@ -23,6 +23,11 @@ const WELCOME_MSG: &str = "
 
 const PROMPT: &str = "🦞 LAUBSTER 🦞";
 
+const REPLACE_BASH_COMMAND: usize = 0;
+const REPLACE_LUA_COMMAND: usize = 1;
+const EDIT_COMMAND: usize = 2;
+const ABORT_COMMAND: usize = 3;
+
 fn main() -> Result<(), Box<dyn Error>> {
 
     println!("{}", WELCOME_MSG);
@@ -37,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     loop {
         display_prompt(&home_dir);
 
-        let command = input_parser.get_input();
+        let mut command = input_parser.get_input();
 
         if command.is_empty() {
             continue;
@@ -66,14 +71,26 @@ fn main() -> Result<(), Box<dyn Error>> {
                     
                     let options = [
                         &format!("{} in {}", b_corr, b_corr_p),
-                        //&format!("{} in lua", l_corr),
+                        &format!("{} in lua", "None"/*l_corr*/),
                         "Edit",
                         "Abort"
                     ];
 
                     match termio::get_choice(&options, false) {
                         Ok(c) => {
+                            let retry = match c {
+                                REPLACE_BASH_COMMAND => { replace_command(&mut command, &p, &b_corr); true },
+                                REPLACE_LUA_COMMAND => false,//replace_command(&mut command, &p, &l_corr)
+                                EDIT_COMMAND => { termio::edit_command(&mut command)?; true },
+                                ABORT_COMMAND => false,
+                                _ => false,
+                            };
 
+                            if retry {
+                                if let Err(e) = parser::parse_inputs(&command, &mut lua_parser) {
+                                    println!("{:?}", e);
+                                }
+                            }
                         },
                         Err(e) => {
                             println!("{:?}", e);
@@ -118,4 +135,8 @@ fn display_prompt(home_dir: &str) {
         print!("[{}] ??? >> ", PROMPT);
         io::stdout().flush().expect("");
     }
+}
+
+fn replace_command(command: &mut String, erroneous_command: &str, fixed_command: &str) {
+    *command = command.replace(erroneous_command, fixed_command);
 }
