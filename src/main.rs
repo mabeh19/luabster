@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![feature(round_char_boundary)]
 
 use std::{
     io::{self, Write},

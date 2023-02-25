@@ -48,14 +48,15 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
 
     let mut string = if start_string.is_some() { start_string.unwrap().to_string() } else { String::new() };
     let start_position = cursor::position().unwrap(); 
-    let mut cursor_pos: u16 = string.len() as u16;
+    let mut internal_cursor_pos: u16 = string.len() as u16;
+    let mut visual_cursor_pos: u16 = string.len() as u16;
     let mut history_index = 0;
     let mut clear_all = false;
     
     history.push_front(string.clone());
 
     loop {
-        show_string(&string, start_position, cursor_pos, clear_all)?;
+        show_string(&string, start_position, visual_cursor_pos, clear_all)?;
         stdout().flush()?;
 
         clear_all = false;
@@ -66,61 +67,69 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
                 Some(c)
             },
             KeyCode::Backspace => {
-                if cursor_pos > 0 {
-                    string.remove((cursor_pos - 1) as usize);
-                    cursor_pos = cursor_pos.saturating_sub(1);
+                if internal_cursor_pos > 0 {
+                    string.remove((internal_cursor_pos - 1) as usize);
+                    internal_cursor_pos = internal_cursor_pos.saturating_sub(1);
+                    visual_cursor_pos = visual_cursor_pos.saturating_sub(1);
                 }
                 None
             },
             KeyCode::Left => {
-                cursor_pos = cursor_pos.saturating_sub(1);
+                internal_cursor_pos = internal_cursor_pos.saturating_sub(1);
+                visual_cursor_pos = visual_cursor_pos.saturating_sub(1);
                 None
             },
             KeyCode::Right => {
-                sat_add(&mut cursor_pos, 1, string.len() as u16);
+                sat_add(&mut internal_cursor_pos, 1, string.len() as u16);
+                sat_add(&mut visual_cursor_pos, 1, string.len() as u16);
                 None
             },
             KeyCode::Enter => {
                 break;
             },
             KeyCode::Delete => {
-                if string.len() > 0 && cursor_pos < (string.len() as u16) {
-                    string.remove(cursor_pos as usize);
+                if string.len() > 0 && internal_cursor_pos < (string.len() as u16) {
+                    string.remove(internal_cursor_pos as usize);
                 }
                 None
             },
             KeyCode::Home => {
-                cursor_pos = 0;
+                visual_cursor_pos = 0;
+                internal_cursor_pos = 0;
                 None
             },
             KeyCode::End => {
-                cursor_pos = string.len() as u16;
+                visual_cursor_pos = string.len() as u16;
+                internal_cursor_pos = string.len() as u16;
                 None
             },
             KeyCode::Up => {
                 sat_add_usize(&mut history_index, 1, history.len() - 1);
                 string = history.get(history_index).expect("Index error in history").to_string();
-                cursor_pos = string.len() as u16;
+                visual_cursor_pos = string.len() as u16;
+                internal_cursor_pos = string.len() as u16;
 
                 None
             },
             KeyCode::Down => {
                 history_index = history_index.saturating_sub(1);
                 string = history.get(history_index).expect("Index error in history").to_string();
-                cursor_pos = string.len() as u16;
+                visual_cursor_pos = string.len() as u16;
+                internal_cursor_pos = string.len() as u16;
             
                 None
             },
             KeyCode::Tab => {
-                let possibilities = get_possibilities(&string, cursor_pos);
+                let possibilities = get_possibilities(&string, visual_cursor_pos);
 
                 if possibilities.2.len() == 1 {
                     let (to_replace, prefix, completion) = (possibilities.0, possibilities.1, possibilities.2[0].clone());
                     string = string.replace(to_replace, &format!("{}{}", prefix, completion));
-                    cursor_pos = string.len() as u16;
+                    visual_cursor_pos = string.len() as u16;
+                    internal_cursor_pos = string.len() as u16;
 
                 } else {
-                    show_possibilities(&possibilities.2, calc_cursor_screen_pos(start_position, cursor_pos));
+                    show_possibilities(&possibilities.2, calc_cursor_screen_pos(start_position, visual_cursor_pos));
                 }
 
                 None
@@ -128,10 +137,11 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
             _ => None
         };
         
-       
         if let Some(inp) = inp {
-            string.insert(cursor_pos.into(), inp);
-            cursor_pos += 1;
+            internal_cursor_pos = insert_byte_aligned(&mut string, inp, internal_cursor_pos);
+            //string.insert(internal_cursor_pos.into(), inp);
+            internal_cursor_pos += inp.len_utf8() as u16;
+            visual_cursor_pos += 1;
         }
 
         if history_index == 0 {
@@ -440,7 +450,12 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
 fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>)> {
     let mut files = Vec::new();
 
-    let path = path.replace("~", &home::home_dir().unwrap().to_string_lossy());
+    let path = if path.starts_with("~"){
+        path.replace("~", &home::home_dir().unwrap().to_string_lossy())
+    } else {
+        path.to_string()
+    };
+
     let mut dir = path.clone();
     //let mut file = String::new();
     
@@ -468,4 +483,16 @@ fn is_command_completion(string: &str, cursor_pos: u16) -> bool {
 
 fn is_file_completion(string: &str, cursor_pos: u16) -> bool {
     string.ends_with(" ") || string.split_whitespace().collect_vec()[0].len() < cursor_pos as usize
+}
+
+fn insert_byte_aligned(string: &mut String, c: char, internal_pos: u16) -> u16 {
+    let mut internal_pos = internal_pos as usize;
+
+    if !string.is_char_boundary(internal_pos) {
+        internal_pos = string.floor_char_boundary(internal_pos);
+    }
+
+    string.insert(internal_pos, c);
+
+    internal_pos as u16
 }
