@@ -485,6 +485,8 @@ impl CliParser {
 
         if Self::is_builtin(command) {
             true
+        } else if Self::is_lua_command(&command[0]) {
+            true
         } else if Self::command_is_valid("", &command[0]) {
             true
         } else if let Ok(path) = std::env::var("PATH") {
