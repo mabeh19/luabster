@@ -36,6 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     parse_args();
 
     let home_dir = home::home_dir().unwrap().display().to_string();
+    let mut cli_parser = CliParser::new();
     let mut lua_parser = lua_parser::LuaParser::init(&home_dir);
     let max_history_len = 1000;
     let mut input_parser = input_parser::InputParser::new(&home_dir, max_history_len);
@@ -61,12 +62,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         };
 
-        if let Err(e) = parser::parse_inputs(&command, &mut lua_parser) {
+        if let Err(e) = cli_parser.parse_inputs(&command, &mut lua_parser) {
             match e {
                 Errors::NoProgramFound(p) => {
                     println!("🦞`{}` not found 🦞", p);
                     println!("Did you mean...");
-                    let (b_corr, b_corr_p) = parser::get_possible_correction(&p);
+                    let (b_corr, b_corr_p) = CliParser::get_possible_correction(&p);
                     
                     //let l_corr = lua_parser.get_possible_correction(&p);
                     
@@ -88,7 +89,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             };
 
                             if retry {
-                                if let Err(e) = parser::parse_inputs(&command, &mut lua_parser) {
+                                if let Err(e) = cli_parser.parse_inputs(&command, &mut lua_parser) {
                                     println!("{:?}", e);
                                 }
                             }

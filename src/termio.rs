@@ -68,19 +68,20 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
             },
             KeyCode::Backspace => {
                 if internal_cursor_pos > 0 {
-                    string.remove((internal_cursor_pos - 1) as usize);
-                    internal_cursor_pos = internal_cursor_pos.saturating_sub(1);
+                    let removed = string.remove(string.floor_char_boundary((internal_cursor_pos - 1) as usize) as usize);
+                    internal_cursor_pos = internal_cursor_pos.saturating_sub(removed.len_utf8() as u16);
                     visual_cursor_pos = visual_cursor_pos.saturating_sub(1);
                 }
                 None
             },
             KeyCode::Left => {
-                internal_cursor_pos = internal_cursor_pos.saturating_sub(1);
+                internal_cursor_pos = string.floor_char_boundary(internal_cursor_pos.saturating_sub(1) as usize) as u16;
                 visual_cursor_pos = visual_cursor_pos.saturating_sub(1);
                 None
             },
             KeyCode::Right => {
                 sat_add(&mut internal_cursor_pos, 1, string.len() as u16);
+                internal_cursor_pos = string.ceil_char_boundary(internal_cursor_pos as usize) as u16;
                 sat_add(&mut visual_cursor_pos, 1, string.len() as u16);
                 None
             },
@@ -106,7 +107,7 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
             KeyCode::Up => {
                 sat_add_usize(&mut history_index, 1, history.len() - 1);
                 string = history.get(history_index).expect("Index error in history").to_string();
-                visual_cursor_pos = string.len() as u16;
+                visual_cursor_pos = string.chars().count() as u16;
                 internal_cursor_pos = string.len() as u16;
 
                 None
@@ -114,7 +115,7 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
             KeyCode::Down => {
                 history_index = history_index.saturating_sub(1);
                 string = history.get(history_index).expect("Index error in history").to_string();
-                visual_cursor_pos = string.len() as u16;
+                visual_cursor_pos = string.chars().count() as u16;
                 internal_cursor_pos = string.len() as u16;
             
                 None
@@ -139,7 +140,6 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
         
         if let Some(inp) = inp {
             internal_cursor_pos = insert_byte_aligned(&mut string, inp, internal_cursor_pos);
-            //string.insert(internal_cursor_pos.into(), inp);
             internal_cursor_pos += inp.len_utf8() as u16;
             visual_cursor_pos += 1;
         }
@@ -205,7 +205,7 @@ fn get_possibilities<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, String, 
             get_files(string, cursor_pos)
         },
         PosibilityType::ProgramSpecific => {
-            ("", String::new(), Vec::new())
+            get_files(string, cursor_pos)//("", String::new(), Vec::new())
         }
     }
 }
@@ -225,6 +225,10 @@ fn get_max_options_per_line(max_str_len: usize) -> usize {
 }
 
 fn show_possibilities(strings: &[String], cursor_position: (u16, u16)) {
+    if strings.len() == 0 {
+        return;
+    }
+
     let longest_option = strings.iter().fold(0, |max_str_len, s| {
         s.len().max(max_str_len)
     });
@@ -422,8 +426,11 @@ fn get_possibility_type(string: &str, cursor_pos: u16) -> PosibilityType {
 fn get_files<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, String, Vec<String>) {
 
     let to_complete = get_string_at(string, cursor_pos);
-    let options = get_files_in_dir(to_complete).unwrap();
-    (to_complete, options.0, options.1)
+    if let Ok(options) = get_files_in_dir(to_complete) {
+        (to_complete, options.0, options.1)
+    } else {
+        (to_complete, String::new(), Vec::new())
+    }
 }
 
 fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
@@ -431,7 +438,11 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
     let mut len = 0;
 
     if cursor_pos == string.len() as u16 {
-        return string.split_whitespace().last().unwrap();
+        if string.ends_with(" ") {
+            return ".";
+        } else {
+            return string.split_whitespace().last().unwrap();
+        }
     }
 
     for s in string.split_whitespace() {
@@ -476,14 +487,18 @@ fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>)> {
     Ok((dir, files))
 }
 
+
 fn is_command_completion(string: &str, cursor_pos: u16) -> bool {
-    let tokens = string.split_whitespace();
-    string.len() == 0 || tokens.collect_vec()[0].len() >= cursor_pos as usize
+    string.len() == 0 || string.split_whitespace().nth(0).unwrap().len() >= cursor_pos as usize
 }
 
+
 fn is_file_completion(string: &str, cursor_pos: u16) -> bool {
-    string.ends_with(" ") || string.split_whitespace().collect_vec()[0].len() < cursor_pos as usize
+    let cursor_pos = cursor_pos as usize;
+    std::fs::write("extra_log.txt", string.as_bytes());
+    string.ends_with(" ") || string.split_whitespace().nth(0).unwrap().len() < cursor_pos
 }
+
 
 fn insert_byte_aligned(string: &mut String, c: char, internal_pos: u16) -> u16 {
     let mut internal_pos = internal_pos as usize;
@@ -496,3 +511,4 @@ fn insert_byte_aligned(string: &mut String, c: char, internal_pos: u16) -> u16 {
 
     internal_pos as u16
 }
+
