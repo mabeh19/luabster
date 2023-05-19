@@ -12,6 +12,7 @@ pub mod log;
 pub mod termio;
 //pub mod gui;
 pub mod input_parser;
+pub mod completions;
 
 use crate::{
     parser::*,
@@ -42,7 +43,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_parser = input_parser::InputParser::new(&home_dir, max_history_len);
     
     loop {
-        display_prompt(&home_dir);
+        let prompt = get_prompt(&home_dir);
+        display_prompt(&prompt);
 
         let mut command = input_parser.get_input();
 
@@ -81,7 +83,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     match termio::get_choice(&options, false) {
                         Ok(c) => {
                             let retry = match c {
-                                REPLACE_BASH_COMMAND => { replace_command(&mut command, &p, &b_corr); true },
+                                REPLACE_BASH_COMMAND => { if b_corr != "No solution found" { replace_command(&mut command, &p, &b_corr); true } else { false }  },
                                 REPLACE_LUA_COMMAND => false,//replace_command(&mut command, &p, &l_corr)
                                 EDIT_COMMAND => { termio::edit_command(&mut command)?; true },
                                 ABORT_COMMAND => false,
@@ -122,21 +124,23 @@ fn parse_args() {
     }
 }
 
-fn display_prompt(home_dir: &str) {
+fn get_prompt(home_dir: &str) -> String {
     const USERNAME_KEY: &str = "USER";
-
     if let Ok(cur_dir) = std::env::current_dir() {
         if let Ok(prompt) = hostname::get() {
             let current_dir = cur_dir.to_string_lossy().replace(home_dir, "~");
-            print!("[{}@{}] {} >> ", std::env::var(USERNAME_KEY).unwrap(), prompt.into_string().unwrap(), current_dir);
+            format!("[{}@{}] {} >> ", std::env::var(USERNAME_KEY).unwrap(), prompt.into_string().unwrap(), current_dir)
         } else {
-            print!("[{}] {} >> ", PROMPT, cur_dir.display());
+            format!("[{}] {} >> ", PROMPT, cur_dir.display())
         }  
-        io::stdout().flush().expect("");
     } else {
-        print!("[{}] ??? >> ", PROMPT);
-        io::stdout().flush().expect("");
+        format!("[{}] ??? >> ", PROMPT)
     }
+}
+
+fn display_prompt(prompt: &str) {
+    print!("{}", prompt);
+    _ = io::stdout().flush();
 }
 
 fn replace_command(command: &mut String, erroneous_command: &str, fixed_command: &str) {

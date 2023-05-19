@@ -35,7 +35,7 @@ const KEYWORDS: [&'static str; 6] = [
     "time",
     "[[",
     "]]",
-    "coproc"
+    "coproc "
 ];
 
 pub struct InputParser {
@@ -118,6 +118,23 @@ impl InputParser {
 
 }
 
+fn contains_isolated(input: &str, pattern: &str) -> bool {
+    if let Some(start_index) = input.find(pattern) {
+        if start_index == 0 {
+            if  input.len() == pattern.len() ||
+                input.chars().nth(pattern.len()) == Some(' ') {
+                true
+            } else {
+                false
+            }
+        } else {
+            input.contains(&format!(" {} ", pattern))
+        }
+    } else {
+        false
+    }
+}
+
 fn contains_keyword(input: &str, scope_level: &mut usize) -> bool {
     for k in KEYWORDS_SCOPE_INCREASE {
         if input.contains(k) {
@@ -132,7 +149,7 @@ fn contains_keyword(input: &str, scope_level: &mut usize) -> bool {
     }
 
     for k in KEYWORDS {
-        if input.contains(k) {
+        if contains_isolated(input, k) {
             return true;
         }
     }
@@ -151,3 +168,22 @@ fn new_line_expected(input: &mut String, scope_level: &mut usize) -> bool {
     contains_keyword(input, scope_level) || *scope_level > 0
 }
 
+
+
+#[test]
+fn sudo_command() {
+    let mut sudo_command = "sudo su".to_string();
+    let mut scope_level = 0;
+    assert!(!contains_keyword(&sudo_command, &mut scope_level));
+    assert!(!new_line_expected(&mut sudo_command, &mut scope_level));
+    assert_eq!(scope_level, 0);
+}
+
+#[test]
+fn multiline_command() {
+    let mut multiline_command = "sudo su\\".to_string();
+    let mut scope_level = 0;
+
+    assert!(!contains_keyword(&multiline_command, &mut scope_level));
+    assert!(new_line_expected(&mut multiline_command, &mut scope_level));
+}

@@ -1,1 +1,1 @@
-zsh fo
+ls /home/mathias/

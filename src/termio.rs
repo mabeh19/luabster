@@ -1,4 +1,4 @@
-use std::{io::{stdout, Write}, collections::VecDeque, env::current_dir};
+use std::{io::{stdout, Write}, collections::VecDeque};
 
 pub use crossterm::{
     cursor,
@@ -7,15 +7,8 @@ pub use crossterm::{
     terminal::{self, ClearType},
     Command, Result,
 };
-use itertools::Itertools;
 
-enum PosibilityType {
-    Executable,
-    File,
-    ProgramSpecific
-}
-
-const CMD_SIM_THRESHOLD: f64 = 0.9;
+use crate::completions;
 
 
 pub fn prompt_for_input(prompt: &str, retain: bool) -> Result<String> {
@@ -46,8 +39,8 @@ fn get_input() -> Result<KeyCode> {
 pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, retain: bool) -> Result<String> {
     crossterm::terminal::enable_raw_mode()?;
 
-    let mut string = if start_string.is_some() { start_string.unwrap().to_string() } else { String::new() };
-    let start_position = cursor::position().unwrap(); 
+    let mut string = start_string.unwrap_or("").to_string();
+    let mut start_position = cursor::position().unwrap(); 
     let mut internal_cursor_pos: u16 = string.len() as u16;
     let mut visual_cursor_pos: u16 = string.len() as u16;
     let mut history_index = 0;
@@ -121,7 +114,7 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
                 None
             },
             KeyCode::Tab => {
-                let possibilities = get_possibilities(&string, visual_cursor_pos);
+                let possibilities = completions::get_possibilities(&string, visual_cursor_pos);
 
                 if possibilities.2.len() == 1 {
                     let (to_replace, prefix, completion) = (possibilities.0, possibilities.1, possibilities.2[0].clone());
@@ -130,7 +123,7 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
                     internal_cursor_pos = string.len() as u16;
 
                 } else {
-                    show_possibilities(&possibilities.2, calc_cursor_screen_pos(start_position, visual_cursor_pos));
+                    start_position.1 -= show_possibilities(&possibilities.2, calc_cursor_screen_pos(start_position, visual_cursor_pos));
                 }
 
                 None
@@ -196,19 +189,7 @@ fn show_string(string: &str, start_position: (u16, u16), cursor_pos: u16, clear_
     Ok(())
 }
 
-fn get_possibilities<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, String, Vec<String>) {
-    match get_possibility_type(string, cursor_pos) {
-        PosibilityType::Executable => {
-            get_similar_commands(string) 
-        },
-        PosibilityType::File => {
-            get_files(string, cursor_pos)
-        },
-        PosibilityType::ProgramSpecific => {
-            get_files(string, cursor_pos)//("", String::new(), Vec::new())
-        }
-    }
-}
+
 
 fn get_max_options_per_line(max_str_len: usize) -> usize {
     if max_str_len == 0 {
@@ -224,16 +205,35 @@ fn get_max_options_per_line(max_str_len: usize) -> usize {
     }
 }
 
-fn show_possibilities(strings: &[String], cursor_position: (u16, u16)) {
+fn show_possibilities(strings: &[String], cursor_position: (u16, u16)) -> u16 {
     if strings.len() == 0 {
-        return;
+        return 0;
     }
 
     let longest_option = strings.iter().fold(0, |max_str_len, s| {
         s.len().max(max_str_len)
     });
 
+    let mut cursor_position = cursor_position;
+    let mut lines_shifted = 0;
+
     let max_options_per_line = get_max_options_per_line(longest_option);
+    let terminal_size = terminal::size().unwrap_or((100, 20));
+
+    if cursor_position.1 == terminal_size.1 - 1 {
+        // on last line, make room
+        let num_lines = strings.chunks(max_options_per_line).count() + 1;
+        
+        cursor_position.1 -= num_lines as u16;
+        _ = execute!(
+            stdout(),
+            style::Print("\n".repeat(num_lines)),
+            cursor::MoveTo(cursor_position.0, cursor_position.1)
+        );  
+
+        lines_shifted -= num_lines as u16;
+
+    }
 
     strings.chunks(max_options_per_line).for_each(|c| {
         let string = c.join("  ");
@@ -249,6 +249,8 @@ fn show_possibilities(strings: &[String], cursor_position: (u16, u16)) {
         stdout(),
         cursor::MoveTo(cursor_position.0, cursor_position.1)
     );
+        
+    lines_shifted
 }
 
 fn sat_add(lhs: &mut u16, rhs: u16, upper_bound: u16) {
@@ -341,162 +343,6 @@ pub fn edit_command(command: &mut String) -> Result<()> {
     *command = get_line(Some(command), &mut VecDeque::new(), true)?;
 
     Ok(())
-}
-
-fn get_similar_commands_in_dir(dir: &str, command: &str) -> Vec<String> {
-    
-    let mut similar_commands = Vec::new();
-    let dir_path = std::path::Path::new(dir);
-
-    if let Err(_) = std::fs::read_dir(dir_path) {
-        return similar_commands;
-    }
-
-    for f in std::fs::read_dir(dir_path).unwrap() {
-        if let Ok(entry) = f {
-            let option = entry.file_name().to_string_lossy().to_string();
-
-            if strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
-                similar_commands.push(option);
-            }
-        }
-    }
-
-    similar_commands
-}
-
-fn get_similar_builtin_commands(command: &str) -> Vec<String> {
-const BUILTIN_COMMANDS: [&str; 2] = [
-        "exit",
-        "cd"
-];
-
-    let mut similar_commands = Vec::new();
-
-    for option in BUILTIN_COMMANDS {
-        if strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
-            similar_commands.push(option.to_string());
-        }
-    }
-
-    similar_commands
-}
-
-fn get_similar_commands<'a>(command: &'a str) -> (&'a str, String, Vec<String>) {
-    let mut similar_commands = Vec::new();
-
-    similar_commands.append(
-        &mut get_similar_builtin_commands(command)
-    );
-
-    // Check directories in PATH
-    if let Ok(env_path) = std::env::var("PATH") {
-        env_path.split(":").for_each(|dir| {
-            similar_commands.append(
-                &mut get_similar_commands_in_dir(dir, command)
-            );
-        })
-    }
-
-    // Check current directory
-    similar_commands.append(
-        &mut get_similar_commands_in_dir(&current_dir().unwrap().to_string_lossy(), command)
-    );
-
-    // Sort alphabetically and remove duplicates
-    similar_commands.sort();
-    similar_commands.dedup();
-
-    (command, String::new(), similar_commands)
-}
-
-
-
-fn get_possibility_type(string: &str, cursor_pos: u16) -> PosibilityType {
-    
-    if is_command_completion(string, cursor_pos) {
-        return PosibilityType::Executable;
-    } else if is_file_completion(string, cursor_pos) {
-        return PosibilityType::File;
-    } else {
-        return PosibilityType::ProgramSpecific;
-    }
-}
-
-fn get_files<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, String, Vec<String>) {
-
-    let to_complete = get_string_at(string, cursor_pos);
-    if let Ok(options) = get_files_in_dir(to_complete) {
-        (to_complete, options.0, options.1)
-    } else {
-        (to_complete, String::new(), Vec::new())
-    }
-}
-
-fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
-    let mut retval: Option<&'a str> = None;
-    let mut len = 0;
-
-    if cursor_pos == string.len() as u16 {
-        if string.ends_with(" ") {
-            return ".";
-        } else {
-            return string.split_whitespace().last().unwrap();
-        }
-    }
-
-    for s in string.split_whitespace() {
-        if retval.is_none() && cursor_pos <= (len + s.len()) as u16 {
-            retval = Some(s);
-        }
-        len += s.len();
-    }
-
-    match retval {
-        Some(s) => s,
-        None    => "."
-    }
-}
-
-fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>)> {
-    let mut files = Vec::new();
-
-    let path = if path.starts_with("~"){
-        path.replace("~", &home::home_dir().unwrap().to_string_lossy())
-    } else {
-        path.to_string()
-    };
-
-    let mut dir = path.clone();
-    //let mut file = String::new();
-    
-    if let Some(n) = dir.rfind("/") {
-        _ = dir.split_off(n+1);
-    }
-    
-    _ = std::fs::write(".files_log", format!("{}", dir));
-
-    for f in std::fs::read_dir(&dir)? {
-        if let Ok(f) = f {
-            if f.path().to_string_lossy().starts_with(&path) {
-                files.push(f.file_name().to_string_lossy().to_string());
-            }
-        }
-    }
-
-    Ok((dir, files))
-}
-
-
-fn is_command_completion(string: &str, cursor_pos: u16) -> bool {
-    string.len() == 0 || string.split_whitespace().nth(0).unwrap().len() >= cursor_pos as usize
-}
-
-
-fn is_file_completion(string: &str, cursor_pos: u16) -> bool {
-    let cursor_pos = cursor_pos as usize;
-    std::fs::write("extra_log.txt", string.as_bytes());
-    string.ends_with(" ") || string.split_whitespace().nth(0).unwrap().len() < cursor_pos
 }
 
 

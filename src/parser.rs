@@ -515,6 +515,10 @@ impl CliParser {
             if let Ok(entry) = f {
                 let option = entry.file_name();
 
+                if !inp.starts_with(".") && option.to_string_lossy().starts_with(".") {
+                    continue;
+                }
+
                 log!(LogLevel::Debug, "Comparing {} to {}", inp, option.to_string_lossy());
 
                 if strsim::jaro_winkler(inp, &option.to_string_lossy()) > STR_SIM_THRESHOLD {
