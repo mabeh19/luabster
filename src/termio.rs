@@ -231,8 +231,8 @@ fn show_possibilities(strings: &[String], cursor_position: (u16, u16)) -> u16 {
             cursor::MoveTo(cursor_position.0, cursor_position.1)
         );  
 
-        lines_shifted -= num_lines as u16;
-
+        lines_shifted += num_lines as u16;
+        
     }
 
     strings.chunks(max_options_per_line).for_each(|c| {

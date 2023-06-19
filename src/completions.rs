@@ -2,6 +2,7 @@
 use std::env::current_dir;
 
 
+#[derive(Debug)]
 pub enum PosibilityType {
     Executable,
     File,
@@ -20,7 +21,8 @@ pub fn get_possibilities<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, Stri
             get_files(string, cursor_pos)
         },
         PosibilityType::ProgramSpecific => {
-            get_command_specific_options(string, cursor_pos)
+            get_files(string, cursor_pos)
+            //get_command_specific_options(string, cursor_pos)
         }
     }
 }
@@ -113,9 +115,10 @@ fn get_command_specific_options<'a>(string: &'a str, cursor_pos: u16) -> (&'a st
 
 fn get_bash_completions(to_complete: &str, string: &str, cursor_pos: u16) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
 
-    for Ok(entry) in std::fs::read_dir("/etc/bash_completion.d")? {
-        if entry.file_name() == 
-    }
+    //for Ok(entry) in std::fs::read_dir("/etc/bash_completion.d")? {
+    //    if entry.file_name() == 
+    //}
+    Ok((String::new(), Vec::new()))
 }
 
 
@@ -139,6 +142,7 @@ fn get_possibility_type(string: &str, cursor_pos: u16) -> PosibilityType {
 fn get_files<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, String, Vec<String>) {
 
     let to_complete = get_string_at(string, cursor_pos);
+    dbg!(to_complete);
     if let Ok(options) = get_files_in_dir(to_complete) {
         (to_complete, options.0, options.1)
     } else {
