@@ -106,9 +106,13 @@ fn get_command_specific_options<'a>(string: &'a str, cursor_pos: u16) -> (&'a st
     // First we check if bash completions exist...
     if let Ok((command, completions)) = get_bash_completions(to_complete, string, cursor_pos) {
         (to_complete, command, completions)
-    } else if let Ok((command, completions)) = get_zsh_completions(to_complete, string, cursor_pos) {
+    } 
+    // Then we check if zsh completions exist...
+    else if let Ok((command, completions)) = get_zsh_completions(to_complete, string, cursor_pos) {
         (to_complete, command, completions)
-    } else {
+    } 
+    // Then we give up :(
+    else {
         (to_complete, String::new(), Vec::new())
     }
 }
