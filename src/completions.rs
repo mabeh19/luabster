@@ -1,6 +1,6 @@
 
 use std::env::current_dir;
-
+use crate::parser;
 
 #[derive(Debug)]
 pub enum PosibilityType {
@@ -50,15 +50,9 @@ fn get_similar_commands_in_dir(dir: &str, command: &str) -> Vec<String> {
 }
 
 fn get_similar_builtin_commands(command: &str) -> Vec<String> {
-const BUILTIN_COMMANDS: [&str; 3] = [
-        "exit",
-        "cd",
-        "fg"
-];
-
     let mut similar_commands = Vec::new();
 
-    for option in BUILTIN_COMMANDS {
+    for option in parser::CliParser::get_builtin_commands() {
         if strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
             similar_commands.push(option.to_string());
         }
@@ -117,7 +111,7 @@ fn get_command_specific_options<'a>(string: &'a str, cursor_pos: u16) -> (&'a st
     }
 }
 
-fn get_bash_completions(to_complete: &str, string: &str, cursor_pos: u16) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
+fn get_bash_completions(_to_complete: &str, _string: &str, _cursor_pos: u16) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
 
     //for Ok(entry) in std::fs::read_dir("/etc/bash_completion.d")? {
     //    if entry.file_name() == 
@@ -126,7 +120,7 @@ fn get_bash_completions(to_complete: &str, string: &str, cursor_pos: u16) -> Res
 }
 
 
-fn get_zsh_completions(to_complete: &str, string: &str, cursor_pos: u16) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
+fn get_zsh_completions(_to_complete: &str, _string: &str, _cursor_pos: u16) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
     todo!();
     
 }
@@ -144,9 +138,7 @@ fn get_possibility_type(string: &str, cursor_pos: u16) -> PosibilityType {
 }
 
 fn get_files<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, String, Vec<String>) {
-
     let to_complete = get_string_at(string, cursor_pos);
-    dbg!(to_complete);
     if let Ok(options) = get_files_in_dir(to_complete) {
         (to_complete, options.0, options.1)
     } else {
@@ -181,10 +173,12 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
 
 fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
     let mut files = Vec::new();
-    let original_query = path;
+    let mut original_query = path.to_string();
 
-    let path = if path.starts_with("~"){
-        path.replace("~", &home::home_dir().unwrap().to_string_lossy())
+    let path = if path.starts_with("~") {
+        let path = path.replace("~", &home::home_dir().unwrap().to_string_lossy());
+        original_query = path.to_string();
+        path
     } else if path == " " {
         ".".to_string()
     } else {
@@ -193,17 +187,32 @@ fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::er
 
     let mut dir = path.clone();
     //let mut file = String::new();
-    
+
     if let Some(n) = dir.rfind("/") {
         _ = dir.split_off(n+1);
     }
     
     //_ = std::fs::write(".files_log", format!("{}", dir));
+    if !std::path::Path::new(&dir).exists() {
+        // path doesn't exist, retry in current dir
+        dir = "./".to_string(); //std::env::current_dir().unwrap().to_string_lossy().to_string();
+        original_query.insert_str(0, &dir);
+    }
 
     for f in std::fs::read_dir(&dir)? {
         if let Ok(f) = f {
-            if f.path().to_string_lossy().starts_with(original_query) {
-                files.push(f.file_name().to_string_lossy().to_string());
+            let f_path = f.path().to_string_lossy().to_string();
+            if f_path.starts_with(&original_query) {
+                if let Ok(t) = f.file_type() {
+                    let mut f_name = f.file_name().to_string_lossy().to_string(); 
+
+                    // Make us not have to add a `/` after every completion of dir
+                    if t.is_dir() {
+                        f_name.push('/');
+                    }
+
+                    files.push(f_name);
+                }
             }
         }
     }

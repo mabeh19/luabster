@@ -121,8 +121,8 @@ impl InputParser {
 fn contains_isolated(input: &str, pattern: &str) -> bool {
     if let Some(start_index) = input.find(pattern) {
         if start_index == 0 {
-            if  input.len() == pattern.len() ||
-                input.chars().nth(pattern.len()) == Some(' ') {
+            if input.len() == pattern.len() ||
+               input.chars().nth(pattern.len()) == Some(' ') {
                 true
             } else {
                 false

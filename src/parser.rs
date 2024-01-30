@@ -4,6 +4,7 @@ use std::{
     fmt::{Display, Formatter, Result as FmtResult},
     os::unix::io::*, 
     env,
+    collections::HashMap
 };
 
 use crate::log;
@@ -14,13 +15,11 @@ use crate::lua_parser;
 use itertools::Itertools;
 use strsim;
 
-const LUA_PREFIX: &str = "!";
-const STR_SIM_THRESHOLD: f64 = 0.95;
-
 
 type Command = Vec<String>;
 type Commands = Vec<Command>;
 type Job = Vec<std::process::Child>;
+pub type BuiltInFunctionHandler<'a> = fn(&mut CliParser<'a>, &Command);
 
 #[derive(Clone, Debug)]
 pub enum Errors {
@@ -68,18 +67,46 @@ enum State {
     DoubleQuotedBackslash,
 }
 
-
-pub struct CliParser {
-    jobs: Vec<Job>
+pub struct CliParser<'a> {
+    jobs: Vec<Job>,
+    builtin_handlers: HashMap<&'a str, BuiltInFunctionHandler<'a>>,
+    aliases: HashMap<String, String>,
 }
 
-impl CliParser {
+const LUA_PREFIX: &str = "!";
+const STR_SIM_THRESHOLD: f64 = 0.95;
+
+impl<'a> CliParser<'a> {
+    
+    const BUILTIN_COMMANDS: [(&'static str, BuiltInFunctionHandler<'a>); 4] = [
+        ("exit", Self::exit),
+        ("cd", Self::cd),
+        ("fg", Self::fg),
+        ("alias", Self::alias)
+    ];
+
+    pub fn get_builtin_commands() -> Vec<&'static str> {
+        Self::BUILTIN_COMMANDS.iter().map(|(n,_)| *n).collect()
+    }
 
     pub fn new() -> Self {
-        Self {
-            jobs: Vec::new()
+        let mut parser = Self {
+            jobs: Vec::new(),
+            builtin_handlers: HashMap::new(),
+            aliases: HashMap::new(),
+        };
+
+        for (n, f) in Self::BUILTIN_COMMANDS {
+            parser.bind_builtin_command(n, f);
         }
+
+        parser
     }
+
+    pub fn bind_builtin_command(&mut self, command: &'a str, handler: BuiltInFunctionHandler<'a>) {
+        self.builtin_handlers.insert(command, handler);
+    }
+
     
     pub fn parse_inputs(&mut self, command: &str, lua_parser: &mut lua_parser::LuaParser) -> Result<(), Errors> {
         let should_wait = Self::should_wait(command);
@@ -98,7 +125,7 @@ impl CliParser {
         }
 
         let mut commands = self.spawn_commands(&args.0, lua_parser);
-        
+
         match Self::execute_commands(&mut commands, &mut args.1) {
             Ok(children) => {
                 if !should_wait {
@@ -109,7 +136,7 @@ impl CliParser {
             }
             Err(_) => ()
         };
-        
+
         lua_parser.save_vars_to_memory();
 
         Ok(())
@@ -121,6 +148,7 @@ impl CliParser {
         let mut args_and_output = command.split(">");
 
         for arg in args_and_output.nth(0).unwrap().split("|") {
+            let arg = arg.trim();
             if Self::is_lua_command(arg) {
                 arguments.push(vec![arg.to_owned()]);
                 continue;
@@ -395,7 +423,7 @@ impl CliParser {
         Ok((children, prev_stdout))
     }
 
-    fn cd(command: &Command) {
+    fn cd(self: &mut Self, command: &Command) {
         let mut dir: String = "~".to_string();
         if command.len() > 1 {
             dir = command[1].clone();
@@ -411,6 +439,14 @@ impl CliParser {
         if let Err(e) = std::env::set_current_dir(dir) {
             println!("{}\r\n", e);
         }
+    }
+
+    fn exit(self: &mut Self, _command: &Command) {
+        
+    }
+
+    fn alias(self: &mut Self, _command: &Command) {
+
     }
 
     fn get_job_index(&mut self, pid: Option<u32>) -> Option<usize> {
@@ -439,20 +475,17 @@ impl CliParser {
 
 
     fn is_builtin(command: &Command) -> bool {
-        command[0].as_str() == "cd" || command[0].as_str() == "fg"
+        Self::BUILTIN_COMMANDS.map(|(n,_)| n).contains(&command[0].as_str())
     }
 
 
     fn check_builtin_command(&mut self, command: &Command) -> bool {
-        let mut is_builtin = true;
-        match command[0].as_str() {
-            "cd" => Self::cd(command),
-            "fg" => self.fg(command),
-            _ => {
-                is_builtin = false;
-            }
+        let is_builtin = Self::is_builtin(command);
+
+        if is_builtin {
+            (self.builtin_handlers.get(&command[0] as &str).unwrap())(self, command);
         }
-        
+         
         is_builtin
     }
 

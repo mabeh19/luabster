@@ -32,7 +32,6 @@ impl LuaParser {
             VAR_DIRECTORY_PATH = Some(format!("{}/.luabster/var/", home_dir));
             std::fs::create_dir_all(VAR_DIRECTORY_PATH.as_ref().unwrap());
         }
-        
 
         Self {
             vars: Vec::new(),
@@ -45,8 +44,8 @@ impl LuaParser {
         let is_lua_command = command.starts_with(LUA_PREFIX);
 
         if is_lua_command {
+            log!(LogLevel::Debug, "Running cmd {}", command);
             let command = strip_prefix(command);
-            log!(LogLevel::Debug, "Parsing Lua command: {}", command);
 
             let res: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
                 lua_ctx.load(&command).exec()?;
@@ -54,7 +53,7 @@ impl LuaParser {
             }); 
 
             match res {
-                Ok(e) => drop(e),
+                Ok(e) => (),
                 Err(e) => println!("{}", e),
             };
         }
@@ -86,7 +85,7 @@ impl LuaParser {
         Some(Box::new(var))
     }
 
-    pub fn load_vars_from_memory(&mut self){
+    pub fn load_vars_from_memory(&mut self) {
         
     }
 
@@ -126,7 +125,7 @@ impl LuaParser {
                 });
 
                 match res {
-                    Ok(r) => drop(r),
+                    Ok(r) => (),
                     Err(e) => println!("{:?}", e),
                 };
             }
@@ -136,7 +135,7 @@ impl LuaParser {
 }
 
 fn strip_prefix(command: &str) -> String {
-    command.replace(LUA_PREFIX, "")
+    command.trim_start_matches(LUA_PREFIX).to_string()
 }
 
 struct LuaVar {
