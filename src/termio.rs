@@ -75,7 +75,7 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
             KeyCode::Right => {
                 sat_add(&mut internal_cursor_pos, 1, string.len() as u16);
                 internal_cursor_pos = string.ceil_char_boundary(internal_cursor_pos as usize) as u16;
-                sat_add(&mut visual_cursor_pos, 1, string.len() as u16);
+                sat_add(&mut visual_cursor_pos, 1, string.chars().count() as u16);
                 None
             },
             KeyCode::Enter => {
@@ -93,7 +93,7 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
                 None
             },
             KeyCode::End => {
-                visual_cursor_pos = string.len() as u16;
+                visual_cursor_pos = string.chars().count() as u16;
                 internal_cursor_pos = string.len() as u16;
                 None
             },
@@ -110,18 +110,18 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
                 string = history.get(history_index).expect("Index error in history").to_string();
                 visual_cursor_pos = string.chars().count() as u16;
                 internal_cursor_pos = string.len() as u16;
-            
+
                 None
             },
             KeyCode::Tab => {
-                let possibilities = completions::get_possibilities(&string, visual_cursor_pos);
+                let possibilities = completions::get_possibilities(&string, internal_cursor_pos);
 
                 if possibilities.2.len() == 1 {
                     let (to_replace, prefix, completion) = (possibilities.0, possibilities.1, possibilities.2[0].clone());
-                    string = string.replace(to_replace, &format!("{}{}", prefix, completion));
-                    visual_cursor_pos = string.len() as u16;
+                    let p = string.floor_char_boundary(internal_cursor_pos as usize - to_replace.len());
+                    string.replace_range(p .. string.ceil_char_boundary(p + to_replace.len()), &format!("{}{}", prefix, completion));
+                    visual_cursor_pos = string.chars().count() as u16;
                     internal_cursor_pos = string.len() as u16;
-
                 } else {
                     start_position.1 -= show_possibilities(&possibilities.2, calc_cursor_screen_pos(start_position, visual_cursor_pos));
                 }
@@ -130,7 +130,7 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
             },
             _ => None
         };
-        
+
         if let Some(inp) = inp {
             internal_cursor_pos = insert_byte_aligned(&mut string, inp, internal_cursor_pos);
             internal_cursor_pos += inp.len_utf8() as u16;

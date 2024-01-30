@@ -19,11 +19,11 @@ use crate::{
     log::*,
 };
 
-const WELCOME_MSG: &str = "
-    Hello, and welcome to 🦞 LAUBSTER 🦞
-";
+const WELCOME_MSG: &str = r#"
+    
+"#;
 
-const PROMPT: &str = "🦞 LAUBSTER 🦞";
+const PROMPT: &str = "LAUBSTER ";
 
 const REPLACE_BASH_COMMAND: usize = 0;
 const REPLACE_LUA_COMMAND: usize = 1;

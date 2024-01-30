@@ -154,7 +154,23 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
         if string.ends_with(" ") {
             return " ";
         } else {
-            return string.split_whitespace().last().unwrap();
+            // if no spaces are in the name, return easy solution
+            let spaces = string.matches("\\ ").count();
+            if spaces == 0 {
+                return string.split_whitespace().last().unwrap();
+            }
+
+            let mut idx = cursor_pos as usize - 1;
+            // backtrack search for space
+            while idx > 1 {
+                idx = string.floor_char_boundary(idx - 1);
+                let prev = string.floor_char_boundary(idx - 1);
+
+                if string.chars().nth(idx).unwrap() == ' ' && string.chars().nth(prev).unwrap() != '\\' {
+                    break;
+                }
+            }
+            return &string[idx + 1 .. cursor_pos as usize];
         }
     }
 
@@ -173,7 +189,7 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
 
 fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
     let mut files = Vec::new();
-    let mut original_query = path.to_string();
+    let mut original_query = path.replace("\\ ", " ");
 
     let path = if path.starts_with("~") {
         let path = path.replace("~", &home::home_dir().unwrap().to_string_lossy());
@@ -185,31 +201,40 @@ fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::er
         path.to_string()
     };
 
-    let mut dir = path.clone();
+    let mut dir = path;
     //let mut file = String::new();
 
     if let Some(n) = dir.rfind("/") {
         _ = dir.split_off(n+1);
     }
-    
+
+    let mut orig_dir = dir.clone();
+    dir = dir.replace("\\ ", " ");
+
     //_ = std::fs::write(".files_log", format!("{}", dir));
     if !std::path::Path::new(&dir).exists() {
         // path doesn't exist, retry in current dir
         dir = "./".to_string(); //std::env::current_dir().unwrap().to_string_lossy().to_string();
         original_query.insert_str(0, &dir);
+        orig_dir = "./".to_string();
     }
 
     for f in std::fs::read_dir(&dir)? {
         if let Ok(f) = f {
             let f_path = f.path().to_string_lossy().to_string();
-            if f_path.starts_with(&original_query) {
+            let mut f_name = f.file_name().to_string_lossy().to_string(); 
+            if f_name.starts_with(".") && !original_query.starts_with(".") {
+                continue;
+            }
+            if original_query == " " || f_path.starts_with(&original_query) {
                 if let Ok(t) = f.file_type() {
-                    let mut f_name = f.file_name().to_string_lossy().to_string(); 
 
                     // Make us not have to add a `/` after every completion of dir
                     if t.is_dir() {
                         f_name.push('/');
                     }
+
+                    f_name = f_name.replace(" ", "\\ ");
 
                     files.push(f_name);
                 }
@@ -217,7 +242,7 @@ fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::er
         }
     }
 
-    Ok((dir, files))
+    Ok((orig_dir, files))
 }
 
 
