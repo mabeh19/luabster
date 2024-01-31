@@ -5,6 +5,7 @@ use std::{
     io::{self, Write},
     error::Error,
 };
+use colored::Colorize;
 
 pub mod parser;
 pub mod lua_parser;
@@ -130,12 +131,27 @@ fn parse_args() {
     }
 }
 
+fn get_git_branch(p: std::path::PathBuf) -> Option<String> {
+    match std::fs::read_to_string(format!("{}/.git/HEAD", p.display())) {
+        Ok(s) => {
+            let b = if s.starts_with("ref:") {
+                s.replace("ref: refs/heads/", "").replace("\n", "")
+            } else {
+                s[..7].to_string()
+            };
+            Some(format!(":{}", b))
+        },
+        Err(_) => None
+    }
+}
+
 fn get_prompt(home_dir: &str) -> String {
     const USERNAME_KEY: &str = "USER";
     if let Ok(cur_dir) = std::env::current_dir() {
-        if let Ok(prompt) = hostname::get() {
+        if let Ok(hn) = hostname::get() {
             let current_dir = cur_dir.to_string_lossy().replace(home_dir, "~");
-            format!("[{}@{}] {} >> ", std::env::var(USERNAME_KEY).unwrap(), prompt.into_string().unwrap(), current_dir)
+            let cur_branch = get_git_branch(cur_dir).unwrap_or("".to_string());
+            format!("[{}@{}] {}{} >> ", std::env::var(USERNAME_KEY).unwrap().blue(), hn.into_string().unwrap().green(), current_dir.cyan(), cur_branch.red())
         } else {
             format!("[{}] {} >> ", PROMPT, cur_dir.display())
         }  

@@ -17,3 +17,4 @@ crossterm = "*"
 itertools = "*"
 strsim = "*"
 nix = { version = "*", features=["signal"]}
+colored = "2.1.0"
