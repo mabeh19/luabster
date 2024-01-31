@@ -2,8 +2,11 @@
 name = "luabster"
 version = "0.1.0"
 edition = "2021"
-
+links = "sig"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+cc = "*"
 
 [dependencies]
 home = "*"
@@ -13,3 +16,4 @@ rlua = "*"
 crossterm = "*"
 itertools = "*"
 strsim = "*"
+nix = { version = "*", features=["signal"]}

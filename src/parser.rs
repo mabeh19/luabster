@@ -71,6 +71,7 @@ pub struct CliParser<'a> {
     jobs: Vec<Job>,
     builtin_handlers: HashMap<&'a str, BuiltInFunctionHandler<'a>>,
     aliases: HashMap<String, String>,
+    cur_job: Option<Job>,
 }
 
 const LUA_PREFIX: &str = "!";
@@ -94,6 +95,7 @@ impl<'a> CliParser<'a> {
             jobs: Vec::new(),
             builtin_handlers: HashMap::new(),
             aliases: HashMap::new(),
+            cur_job: None,
         };
 
         for (n, f) in Self::BUILTIN_COMMANDS {
@@ -116,7 +118,7 @@ impl<'a> CliParser<'a> {
             command.pop(); // Remove final '&' from command
         }
 
-        let mut args: (Commands, Option<Box<dyn Output>>) = Self::parse_input(&command, lua_parser);
+        let mut args: (Commands, Option<Box<dyn Output>>) = self.parse_input(&command, lua_parser);
 
         for arg in &args.0 {
             if Self::check_validity_of_program(&arg) == false {
@@ -129,7 +131,8 @@ impl<'a> CliParser<'a> {
         match Self::execute_commands(&mut commands, &mut args.1) {
             Ok(children) => {
                 if !should_wait {
-                    Self::wait_for_children_to_finish(children);
+                    self.cur_job = Some(children);
+                    self.wait_for_children_to_finish();
                 } else {
                     self.jobs.push(children);
                 }
@@ -142,7 +145,7 @@ impl<'a> CliParser<'a> {
         Ok(())
     }
 
-    fn parse_input(command: &str, lua_parser: &mut lua_parser::LuaParser) -> (Commands, Option<Box<dyn Output>>) {
+    fn parse_input(&self, command: &str, lua_parser: &mut lua_parser::LuaParser) -> (Commands, Option<Box<dyn Output>>) {
         let mut arguments: Commands = Vec::new();
         let mut output: Option<Box<dyn Output>> = None;
         let mut args_and_output = command.split(">");
@@ -154,7 +157,15 @@ impl<'a> CliParser<'a> {
                 continue;
             }
             match Self::parse_command(arg) {
-                Ok(cmd) => arguments.push(cmd),
+                Ok(mut cmd) => {
+                    if let Some(a) = self.aliases.get(&cmd[0]) {
+                        if let Ok(mut exp_cmd) = Self::parse_command(a) {
+                            exp_cmd.append(&mut cmd.into_iter().dropping(1).collect());
+                            cmd = exp_cmd;
+                        }
+                    }
+                    arguments.push(cmd);
+                },
                 Err(e) => {
                     println!("{:?}", e); 
                     break;
@@ -162,7 +173,6 @@ impl<'a> CliParser<'a> {
             };
         }
 
-        #[allow(unused_variables)]
         if let Some(file) = args_and_output.nth(0) {
             log!(LogLevel::Debug, "Creating output {}", file);
             output = Self::create_output(command, lua_parser);
@@ -445,8 +455,14 @@ impl<'a> CliParser<'a> {
         
     }
 
-    fn alias(self: &mut Self, _command: &Command) {
-
+    fn alias(self: &mut Self, command: &Command) {
+        if command.len() != 2 {
+            return;
+        }
+        if let Some(idx) = command[1].find('=') {
+            let (name, cmd) = command[1].split_at(idx);
+            self.aliases.insert(name.to_string(), cmd[1..].to_string());
+        } 
     }
 
     fn get_job_index(&mut self, pid: Option<u32>) -> Option<usize> {
@@ -468,8 +484,8 @@ impl<'a> CliParser<'a> {
     fn fg(&mut self, command: &Command) {
         let pid = if command.len() == 1 { None } else { command[1].parse().ok() };
         if let Some(job_index) = self.get_job_index(pid) {
-            let children_to_wait_for = self.jobs.remove(job_index);
-            Self::wait_for_children_to_finish(children_to_wait_for);
+            self.cur_job = Some(self.jobs.remove(job_index));
+            self.wait_for_children_to_finish();
         }
     }
 
@@ -495,10 +511,12 @@ impl<'a> CliParser<'a> {
         command.spawn()
     }
 
-    fn wait_for_children_to_finish(children: Vec<std::process::Child>) {
-        for cmd in children {
-            if let Err(e) = cmd.wait_with_output() {
-                println!("{}", e);
+    fn wait_for_children_to_finish(&mut self) {
+        if let Some(jobs) = self.cur_job.take() {
+            for cmd in jobs {
+                if let Err(e) = cmd.wait_with_output() {
+                    println!("{}", e);
+                }
             }
         }
     }
@@ -598,8 +616,11 @@ impl<'a> CliParser<'a> {
             ("No solution found".to_string(), "file system".to_string())
         }
     }
-}
 
+    pub fn kill(&mut self) {
+        
+    }
+}
 
 
 pub trait Output {
@@ -630,5 +651,15 @@ impl Output for OutFile {
 
     fn close(self) {
         
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn parser_kill(parser: *mut nix::libc::c_void)
+{
+    unsafe {
+        let p: &mut CliParser = &mut *(parser as *mut CliParser);
+
+        p.kill();
     }
 }

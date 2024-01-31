@@ -190,6 +190,7 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
 fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
     let mut files = Vec::new();
     let mut original_query = path.replace("\\ ", " ");
+    let mut first_char_in_file = ' ';
 
     let path = if path.starts_with("~") {
         let path = path.replace("~", &home::home_dir().unwrap().to_string_lossy());
@@ -205,7 +206,12 @@ fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::er
     //let mut file = String::new();
 
     if let Some(n) = dir.rfind("/") {
-        _ = dir.split_off(n+1);
+        let rest = dir.split_off(dir.ceil_char_boundary(n+1));
+        if let Some(c) = rest.chars().nth(0) {
+            first_char_in_file = c;
+        }
+    } else if let Some(c) = dir.chars().nth(0) {
+        first_char_in_file = c;
     }
 
     let mut orig_dir = dir.clone();
@@ -223,7 +229,7 @@ fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::er
         if let Ok(f) = f {
             let f_path = f.path().to_string_lossy().to_string();
             let mut f_name = f.file_name().to_string_lossy().to_string(); 
-            if f_name.starts_with(".") && !original_query.starts_with(".") {
+            if f_name.starts_with(".") && first_char_in_file != '.' {
                 continue;
             }
             if original_query == " " || f_path.starts_with(&original_query) {

@@ -10,7 +10,6 @@ pub mod parser;
 pub mod lua_parser;
 pub mod log;
 pub mod termio;
-//pub mod gui;
 pub mod input_parser;
 pub mod completions;
 
@@ -23,12 +22,16 @@ const WELCOME_MSG: &str = r#"
     
 "#;
 
-const PROMPT: &str = "LAUBSTER ";
+const PROMPT: &str = "LUABSTER ";
 
 const REPLACE_BASH_COMMAND: usize = 0;
 const REPLACE_LUA_COMMAND: usize = 1;
 const EDIT_COMMAND: usize = 2;
 const ABORT_COMMAND: usize = 3;
+
+extern "C" {
+    fn signal_setup();
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
 
@@ -41,6 +44,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut lua_parser = lua_parser::LuaParser::init(&home_dir);
     let max_history_len = 1000;
     let mut input_parser = input_parser::InputParser::new(&home_dir, max_history_len);
+
+    unsafe {
+        signal_setup();
+    }
     
     loop {
         let prompt = get_prompt(&home_dir);
@@ -67,10 +74,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         if let Err(e) = cli_parser.parse_inputs(&command, &mut lua_parser) {
             match e {
                 Errors::NoProgramFound(p) => {
-                    println!("🦞`{}` not found 🦞", p);
                     println!("Did you mean...");
                     let (b_corr, b_corr_p) = CliParser::get_possible_correction(&p);
-                    
+
                     //let l_corr = lua_parser.get_possible_correction(&p);
                     
                     let options = [
