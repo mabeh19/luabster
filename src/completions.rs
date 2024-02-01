@@ -94,9 +94,6 @@ fn get_command_specific_options<'a>(string: &'a str, cursor_pos: u16) -> (&'a st
     
     let to_complete = get_string_at(string, cursor_pos);
 
-    #[cfg(target_os = "windows")]
-    return (to_complete, String::new(), Vec::new());
-
     // First we check if bash completions exist...
     if let Ok((command, completions)) = get_bash_completions(to_complete, string, cursor_pos) {
         (to_complete, command, completions)
@@ -203,7 +200,6 @@ fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::er
     };
 
     let mut dir = path;
-    //let mut file = String::new();
 
     if let Some(n) = dir.rfind("/") {
         let rest = dir.split_off(dir.ceil_char_boundary(n+1));

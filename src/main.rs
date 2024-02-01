@@ -19,9 +19,7 @@ use crate::{
     log::*,
 };
 
-const WELCOME_MSG: &str = r#"
-    
-"#;
+const WELCOME_MSG: &str = "";
 
 const PROMPT: &str = "LUABSTER ";
 
@@ -36,15 +34,16 @@ extern "C" {
 
 fn main() -> Result<(), Box<dyn Error>> {
 
-    println!("{}", WELCOME_MSG);
+    print!("{}", WELCOME_MSG);
    
     parse_args();
 
     let home_dir = home::home_dir().unwrap().display().to_string();
     let mut cli_parser = CliParser::new();
-    let mut lua_parser = lua_parser::LuaParser::init(&home_dir);
     let max_history_len = 1000;
     let mut input_parser = input_parser::InputParser::new(&home_dir, max_history_len);
+
+    _ = cli_parser.parse_inputs(&format!("source {}/.luabster/luabster.conf", home_dir));
 
     unsafe {
         signal_setup();
@@ -56,10 +55,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         let mut command = input_parser.get_input();
 
-        if command.is_empty() {
-            continue;
-        }
-
         log!(LogLevel::Debug, "Input received: {}", command);
 
         match input_parser.check_quit(&command) {
@@ -67,12 +62,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 println!("{:?}", e);
                 break;
             },
-            Ok(()) => {
-
-            }
+            Ok(_) => ()
         };
 
-        if let Err(e) = cli_parser.parse_inputs(&command, &mut lua_parser) {
+        if let Err(e) = cli_parser.parse_inputs(&command) {
             match e {
                 Errors::NoProgramFound(p) => {
                     println!("Did you mean...");
@@ -98,7 +91,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             };
 
                             if retry {
-                                if let Err(e) = cli_parser.parse_inputs(&command, &mut lua_parser) {
+                                if let Err(e) = cli_parser.parse_inputs(&command) {
                                     println!("{:?}", e);
                                 }
                             }
@@ -139,7 +132,7 @@ fn get_git_branch(p: std::path::PathBuf) -> Option<String> {
             } else {
                 s[..7].to_string()
             };
-            Some(format!(":{}", b))
+            Some(format!(" \u{F09B} {}", b))
         },
         Err(_) => None
     }
@@ -151,7 +144,7 @@ fn get_prompt(home_dir: &str) -> String {
         if let Ok(hn) = hostname::get() {
             let current_dir = cur_dir.to_string_lossy().replace(home_dir, "~");
             let cur_branch = get_git_branch(cur_dir).unwrap_or("".to_string());
-            format!("[{}@{}] {}{} >> ", std::env::var(USERNAME_KEY).unwrap().blue(), hn.into_string().unwrap().green(), current_dir.cyan(), cur_branch.red())
+            format!("[{}@{}] {}{} \n>> ", std::env::var(USERNAME_KEY).unwrap().blue(), hn.into_string().unwrap().green(), current_dir.cyan(), cur_branch.red())
         } else {
             format!("[{}] {} >> ", PROMPT, cur_dir.display())
         }  

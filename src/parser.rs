@@ -72,6 +72,7 @@ pub struct CliParser<'a> {
     builtin_handlers: HashMap<&'a str, BuiltInFunctionHandler<'a>>,
     aliases: HashMap<String, String>,
     cur_job: Option<Job>,
+    lua_parser: lua_parser::LuaParser,
 }
 
 const LUA_PREFIX: &str = "!";
@@ -79,11 +80,13 @@ const STR_SIM_THRESHOLD: f64 = 0.95;
 
 impl<'a> CliParser<'a> {
     
-    const BUILTIN_COMMANDS: [(&'static str, BuiltInFunctionHandler<'a>); 4] = [
+    const BUILTIN_COMMANDS: [(&'static str, BuiltInFunctionHandler<'a>); 6] = [
         ("exit", Self::exit),
         ("cd", Self::cd),
         ("fg", Self::fg),
-        ("alias", Self::alias)
+        ("alias", Self::alias),
+        ("source", Self::source),
+        ("export", Self::export),
     ];
 
     pub fn get_builtin_commands() -> Vec<&'static str> {
@@ -96,6 +99,7 @@ impl<'a> CliParser<'a> {
             builtin_handlers: HashMap::new(),
             aliases: HashMap::new(),
             cur_job: None,
+            lua_parser: lua_parser::LuaParser::init(&home::home_dir().unwrap().display().to_string())
         };
 
         for (n, f) in Self::BUILTIN_COMMANDS {
@@ -108,17 +112,19 @@ impl<'a> CliParser<'a> {
     pub fn bind_builtin_command(&mut self, command: &'a str, handler: BuiltInFunctionHandler<'a>) {
         self.builtin_handlers.insert(command, handler);
     }
-
     
-    pub fn parse_inputs(&mut self, command: &str, lua_parser: &mut lua_parser::LuaParser) -> Result<(), Errors> {
+    pub fn parse_inputs(&mut self, command: &str) -> Result<(), Errors> {
+        if command.is_empty() {
+            return Ok(());
+        }
         let should_wait = Self::should_wait(command);
-        let mut command = command.to_string();
+        let mut command = Self::expand_string(command);
 
         if should_wait {
             command.pop(); // Remove final '&' from command
         }
 
-        let mut args: (Commands, Option<Box<dyn Output>>) = self.parse_input(&command, lua_parser);
+        let mut args: (Commands, Option<Box<dyn Output>>) = self.parse_input(&command);
 
         for arg in &args.0 {
             if Self::check_validity_of_program(&arg) == false {
@@ -126,7 +132,7 @@ impl<'a> CliParser<'a> {
             }
         }
 
-        let mut commands = self.spawn_commands(&args.0, lua_parser);
+        let mut commands = self.spawn_commands(&args.0);
 
         match Self::execute_commands(&mut commands, &mut args.1) {
             Ok(children) => {
@@ -140,12 +146,12 @@ impl<'a> CliParser<'a> {
             Err(_) => ()
         };
 
-        lua_parser.save_vars_to_memory();
+        self.lua_parser.save_vars_to_memory();
 
         Ok(())
     }
 
-    fn parse_input(&self, command: &str, lua_parser: &mut lua_parser::LuaParser) -> (Commands, Option<Box<dyn Output>>) {
+    fn parse_input(&mut self, command: &str) -> (Commands, Option<Box<dyn Output>>) {
         let mut arguments: Commands = Vec::new();
         let mut output: Option<Box<dyn Output>> = None;
         let mut args_and_output = command.split(">");
@@ -175,7 +181,7 @@ impl<'a> CliParser<'a> {
 
         if let Some(file) = args_and_output.nth(0) {
             log!(LogLevel::Debug, "Creating output {}", file);
-            output = Self::create_output(command, lua_parser);
+            output = Self::create_output(command, &mut self.lua_parser);
         }
 
         (arguments, output)
@@ -346,11 +352,11 @@ impl<'a> CliParser<'a> {
         }
     }
 
-    fn spawn_commands(&mut self, commands: &Commands, lua_parser: &mut lua_parser::LuaParser) -> Vec<std::process::Command> {
+    fn spawn_commands(&mut self, commands: &Commands) -> Vec<std::process::Command> {
         let mut spawned_commands: Vec<std::process::Command> = Vec::new();
 
         for cmd in commands {
-            if self.check_builtin_command(cmd) == true || lua_parser.parse(&cmd[0]) {
+            if self.check_builtin_command(cmd) == true || self.lua_parser.parse(&cmd[0]) {
                 continue;
             }
             spawned_commands.push(Self::spawn_command(cmd));
@@ -451,11 +457,11 @@ impl<'a> CliParser<'a> {
         }
     }
 
-    fn exit(self: &mut Self, _command: &Command) {
+    fn exit(&mut self, _command: &Command) {
         
     }
 
-    fn alias(self: &mut Self, command: &Command) {
+    fn alias(&mut self, command: &Command) {
         if command.len() != 2 {
             return;
         }
@@ -463,6 +469,34 @@ impl<'a> CliParser<'a> {
             let (name, cmd) = command[1].split_at(idx);
             self.aliases.insert(name.to_string(), cmd[1..].to_string());
         } 
+    }
+
+    fn source(&mut self, command: &Command) {
+        for cmd in &command[1..] {
+            match std::fs::read_to_string(cmd) {
+                Ok(s) => {
+                    for line in s.lines() {
+                        _ = self.parse_inputs(line);
+                    }
+                },
+                Err(_) => (),
+            }
+        }
+    }
+
+    fn export(&mut self, command: &Command) {
+        if let Some(idx) = command[1].find('=') {
+            let (var, val) = command[1].split_at(idx);
+            std::env::set_var(var, &Self::expand_string(&val[1..]));
+        }
+    }
+
+    fn expand_string(s: &str) -> String {
+        if let Ok(s) = shellexpand::env(s) {
+            s.to_string()
+        } else {
+            s.to_string()
+        }
     }
 
     fn get_job_index(&mut self, pid: Option<u32>) -> Option<usize> {
@@ -605,7 +639,6 @@ impl<'a> CliParser<'a> {
         None
     }
 
-
     pub fn get_possible_correction(inp: &str) -> (String, String) {
 
         if let Some(correction) = Self::has_possible_correction_in_same_dir(inp) {
@@ -617,8 +650,12 @@ impl<'a> CliParser<'a> {
         }
     }
 
-    pub fn kill(&mut self) {
-        
+    pub fn kill(&mut self, kill_func: extern "C" fn (u32, i32), sig: i32) {
+        if let Some(mut cmds) = self.cur_job.take() {
+            for cmd in &mut cmds {
+                (kill_func)(cmd.id(), sig);
+            }
+        }
     }
 }
 
@@ -655,11 +692,13 @@ impl Output for OutFile {
 }
 
 #[no_mangle]
-pub extern "C" fn parser_kill(parser: *mut nix::libc::c_void)
+pub extern "C" fn parser_kill(parser: *mut std::ffi::c_void, kill_func: extern "C" fn (u32, i32), sig: i32)
 {
     unsafe {
         let p: &mut CliParser = &mut *(parser as *mut CliParser);
 
-        p.kill();
+     //for some reason it already works apparently?
+     //Not sure why...
+        p.kill(kill_func, sig);
     }
 }
