@@ -324,17 +324,16 @@ impl<'a> CliParser<'a> {
         let _output: Option<Box<dyn Output>> = None;
 
         match Self::get_output_file(command) {
-            OutputType::AppendVariable(n) => lua_parser.append_to_variable(&n),
-            OutputType::NewVariable(n)    => lua_parser.output_to_variable(&n),       
-            OutputType::AppendFile(n)     => Self::append_file(&n).ok(),
-            OutputType::OverwriteFile(n)  => Self::overwrite_file(&n).ok(),
+            OutputType::AppendVariable(n) => lua_parser.append_to_variable(&n.trim()),
+            OutputType::NewVariable(n)    => lua_parser.output_to_variable(&n.trim()),       
+            OutputType::AppendFile(n)     => Self::append_file(&n.trim()).ok(),
+            OutputType::OverwriteFile(n)  => Self::overwrite_file(&n.trim()).ok(),
             OutputType::NoOutput          => None
         }
     }
 
-    fn overwrite_file(command: &str) -> Result<Box<dyn Output>, Errors> {
-        let mut file_name = command.split(">");
-        let file = OutFile::new(file_name.nth(1).unwrap().trim());
+    fn overwrite_file(file_name: &str) -> Result<Box<dyn Output>, Errors> {
+        let file = OutFile::new(file_name);
 
         match file {
             Ok(f) => Ok(f),
@@ -342,9 +341,8 @@ impl<'a> CliParser<'a> {
         }
     }
 
-    fn append_file(command: &str) -> Result<Box<dyn Output>, Errors> {
-        let mut file_name = command.split(">>");
-        let file = OutFile::open(file_name.nth(1).unwrap().trim());
+    fn append_file(file_name: &str) -> Result<Box<dyn Output>, Errors> {
+        let file = OutFile::open(file_name);
 
         match file {
             Ok(f) => Ok(f),
