@@ -73,6 +73,7 @@ pub struct CliParser<'a> {
     aliases: HashMap<String, String>,
     cur_job: Option<Job>,
     lua_parser: lua_parser::LuaParser,
+    should_wait: bool,
 }
 
 const LUA_PREFIX: &str = "!";
@@ -99,7 +100,8 @@ impl<'a> CliParser<'a> {
             builtin_handlers: HashMap::new(),
             aliases: HashMap::new(),
             cur_job: None,
-            lua_parser: lua_parser::LuaParser::init(&home::home_dir().unwrap().display().to_string())
+            lua_parser: lua_parser::LuaParser::init(&home::home_dir().unwrap().display().to_string()),
+            should_wait: false
         };
 
         for (n, f) in Self::BUILTIN_COMMANDS {
@@ -117,33 +119,37 @@ impl<'a> CliParser<'a> {
         if command.is_empty() {
             return Ok(());
         }
-        let should_wait = Self::should_wait(command);
+        let run_in_bg = Self::should_wait(command);
         let mut command = Self::expand_string(command);
 
-        if should_wait {
+        if run_in_bg {
             command.pop(); // Remove final '&' from command
         }
+        self.should_wait = !run_in_bg;
 
-        let mut args: (Commands, Option<Box<dyn Output>>) = self.parse_input(&command);
+        for cmd in command.split("&&") {
 
-        for arg in &args.0 {
-            if Self::check_validity_of_program(&arg) == false {
-                return Err(Errors::NoProgramFound(arg[0].clone()));
-            }
-        }
+            let mut args: (Commands, Option<Box<dyn Output>>) = self.parse_input(&cmd);
 
-        let mut commands = self.spawn_commands(&args.0);
-
-        match Self::execute_commands(&mut commands, &mut args.1) {
-            Ok(children) => {
-                if !should_wait {
-                    self.cur_job = Some(children);
-                    self.wait_for_children_to_finish();
-                } else {
-                    self.jobs.push(children);
+            for arg in &args.0 {
+                if Self::check_validity_of_program(&arg) == false {
+                    return Err(Errors::NoProgramFound(arg[0].clone()));
                 }
             }
-            Err(_) => ()
+
+            let mut commands = self.spawn_commands(&args.0);
+
+            match Self::execute_commands(&mut commands, &mut args.1) {
+                Ok(children) => {
+                    if self.should_wait {
+                        self.cur_job = Some(children);
+                        self.wait_for_children_to_finish();
+                    } else {
+                        self.jobs.push(children);
+                    }
+                }
+                Err(_) => ()
+            };
         };
 
         self.lua_parser.save_vars_to_memory();
@@ -544,12 +550,24 @@ impl<'a> CliParser<'a> {
     }
 
     fn wait_for_children_to_finish(&mut self) {
-        if let Some(jobs) = self.cur_job.take() {
-            for cmd in jobs {
-                if let Err(e) = cmd.wait_with_output() {
-                    println!("{}", e);
+        while self.should_wait && self.cur_job.is_some() {
+            let mut rem_children = Vec::new();
+            if let Some(job) = self.cur_job.take() {
+                for mut child in job {
+                    match child.try_wait() {
+                        Ok(_) => (),
+                        Err(_) => rem_children.push(child)
+                    };
+                }
+
+                if rem_children.len() > 0 {
+                    self.cur_job = Some(rem_children);
                 }
             }
+        }
+
+        if let Some(job) = self.cur_job.take() {
+            self.jobs.push(job);
         }
     }
 
@@ -655,6 +673,10 @@ impl<'a> CliParser<'a> {
             }
         }
     }
+
+    pub fn stop(&mut self) {
+        self.should_wait = false;
+    }
 }
 
 
@@ -695,8 +717,7 @@ pub extern "C" fn parser_kill(parser: *mut std::ffi::c_void, kill_func: extern "
     unsafe {
         let p: &mut CliParser = &mut *(parser as *mut CliParser);
 
-     //for some reason it already works apparently?
-     //Not sure why...
         p.kill(kill_func, sig);
     }
 }
+

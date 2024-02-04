@@ -29,7 +29,7 @@ const EDIT_COMMAND: usize = 2;
 const ABORT_COMMAND: usize = 3;
 
 extern "C" {
-    fn signal_setup();
+    fn signal_setup(p: *mut CliParser);
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     _ = cli_parser.parse_inputs(&format!("source {}/.luabster/luabster.conf", home_dir));
 
     unsafe {
-        signal_setup();
+        signal_setup(&mut cli_parser as *mut CliParser);
     }
     
     loop {
@@ -58,8 +58,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         log!(LogLevel::Debug, "Input received: {}", command);
 
         match input_parser.check_quit(&command) {
-            Err(e) => {
-                println!("{:?}", e);
+            Err(_) => {
+                //println!("{:?}", e);
                 break;
             },
             Ok(_) => ()
@@ -68,11 +68,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         if let Err(e) = cli_parser.parse_inputs(&command) {
             match e {
                 Errors::NoProgramFound(p) => {
-                    println!("Did you mean...");
+                    //println!("Did you mean...");
                     let (b_corr, b_corr_p) = CliParser::get_possible_correction(&p);
 
                     //let l_corr = lua_parser.get_possible_correction(&p);
-                    
+
                     let options = [
                         &format!("{} in {}", b_corr, b_corr_p),
                         &format!("{} in lua", "None"/*l_corr*/),
@@ -96,8 +96,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         },
-                        Err(e) => {
-                            println!("{:?}", e);
+                        Err(_) => {
+                            //println!("{:?}", e);
                         }
                     }
                 },
