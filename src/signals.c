@@ -6,9 +6,10 @@
 
 
 extern void parser_kill(void *, void (*)(unsigned, int), int);
-extern void parser_stop(void*);
+extern void parser_stop(void*, void (*)(unsigned, int), int);
 
 static void sig_handler(int sig);
+static void sigstop_handler(int sig);
 
 static volatile void *parser;
 
@@ -25,6 +26,7 @@ void signal_setup(void *p)
     if (sigaction(SIGINT, &act, NULL)) {
         printf("Failed to bind SIGINT: %s\n", strerror(errno));
     }
+    act.sa_handler = sigstop_handler;
     if (sigaction(SIGTSTP, &act, NULL)) {
         printf("Failed to bind SIGTSTP: %s\n", strerror(errno));
     }
@@ -41,3 +43,9 @@ static void sig_handler(int sig)
     parser_kill((void*)parser, forward_signal, sig);
 }
 
+
+static void sigstop_handler(int sig)
+{
+    if (!parser) return;
+    parser_stop((void*)parser, forward_signal, sig);
+}

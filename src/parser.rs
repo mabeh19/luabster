@@ -505,7 +505,10 @@ impl<'a> CliParser<'a> {
 
     fn get_job_index(&mut self, pid: Option<u32>) -> Option<usize> {
         if pid.is_none() {
-            return Some(0);
+            if self.jobs.len() == 0 {
+                return None;
+            }
+            return Some(self.jobs.len() - 1);
         }
         let pid = pid.unwrap();
         let mut index = 0;
@@ -555,8 +558,9 @@ impl<'a> CliParser<'a> {
             if let Some(job) = self.cur_job.take() {
                 for mut child in job {
                     match child.try_wait() {
-                        Ok(_) => (),
-                        Err(_) => rem_children.push(child)
+                        Ok(None)    => rem_children.push(child),
+                        Ok(_)       => (),
+                        Err(_)      => ()
                     };
                 }
 
@@ -567,6 +571,7 @@ impl<'a> CliParser<'a> {
         }
 
         if let Some(job) = self.cur_job.take() {
+            println!("placing in background");
             self.jobs.push(job);
         }
     }
@@ -712,8 +717,7 @@ impl Output for OutFile {
 }
 
 #[no_mangle]
-pub extern "C" fn parser_kill(parser: *mut std::ffi::c_void, kill_func: extern "C" fn (u32, i32), sig: i32)
-{
+pub extern "C" fn parser_kill(parser: *mut std::ffi::c_void, kill_func: extern "C" fn (u32, i32), sig: i32) {
     unsafe {
         let p: &mut CliParser = &mut *(parser as *mut CliParser);
 
@@ -721,3 +725,12 @@ pub extern "C" fn parser_kill(parser: *mut std::ffi::c_void, kill_func: extern "
     }
 }
 
+#[no_mangle]
+pub extern "C" fn parser_stop(parser: *mut std::ffi::c_void, kill_func: extern "C" fn (u32, i32), sig: i32) {
+    unsafe {
+        let p: &mut CliParser = &mut *(parser as *mut CliParser);
+
+        p.kill(kill_func, sig);
+        p.stop();
+    }
+}
