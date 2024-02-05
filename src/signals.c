@@ -5,14 +5,15 @@
 #include <errno.h>
 
 
-extern void parser_kill(void *, void (*)(unsigned, int), int);
-extern void parser_stop(void*, void (*)(unsigned, int), int);
+extern void parser_kill(void *, int);
+extern void parser_stop(void*, int);
 
 static void sig_handler(int sig);
 static void sigstop_handler(int sig);
 
 static volatile void *parser;
 
+const int sig_CONT = SIGCONT;
 
 void signal_setup(void *p)
 {
@@ -32,20 +33,22 @@ void signal_setup(void *p)
     }
 }
 
-static void forward_signal(unsigned pid, int sig)
+
+void sig_kill(unsigned pid, int sig)
 {
+    printf("Sending sig %d to %u\n", sig, pid);
     kill(pid, sig);
 }
 
 static void sig_handler(int sig)
 {
     if (!parser) return;
-    parser_kill((void*)parser, forward_signal, sig);
+    parser_kill((void*)parser, sig);
 }
 
 
 static void sigstop_handler(int sig)
 {
     if (!parser) return;
-    parser_stop((void*)parser, forward_signal, sig);
+    parser_stop((void*)parser, sig);
 }

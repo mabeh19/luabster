@@ -2,7 +2,8 @@ use core::mem;
 use std::{
     io::{stdout, Write},
     fmt::{Display, Formatter, Result as FmtResult},
-    os::unix::io::*, 
+    os::unix::io::*,
+    os::unix::process::ExitStatusExt,
     env,
     collections::HashMap
 };
@@ -76,11 +77,16 @@ pub struct CliParser<'a> {
     should_wait: bool,
 }
 
+extern "C" {
+    fn sig_kill(pid: u32, sig: i32);
+    static sig_CONT: i32;
+}
+
 const LUA_PREFIX: &str = "!";
 const STR_SIM_THRESHOLD: f64 = 0.95;
 
 impl<'a> CliParser<'a> {
-    
+
     const BUILTIN_COMMANDS: [(&'static str, BuiltInFunctionHandler<'a>); 6] = [
         ("exit", Self::exit),
         ("cd", Self::cd),
@@ -558,9 +564,15 @@ impl<'a> CliParser<'a> {
             if let Some(job) = self.cur_job.take() {
                 for mut child in job {
                     match child.try_wait() {
-                        Ok(None)    => rem_children.push(child),
-                        Ok(_)       => (),
-                        Err(_)      => ()
+                        Ok(None) => rem_children.push(child),
+                        Ok(Some(status)) => {
+                            if let Some(sig) = status.stopped_signal() {
+                                unsafe {
+                                    sig_kill(child.id(), sig_CONT);
+                                }
+                            }
+                        },
+                        Err(_) => ()
                     };
                 }
 
@@ -671,10 +683,12 @@ impl<'a> CliParser<'a> {
         }
     }
 
-    pub fn kill(&mut self, kill_func: extern "C" fn (u32, i32), sig: i32) {
+    pub fn kill(&mut self, sig: i32) {
         if let Some(mut cmds) = self.cur_job.take() {
             for cmd in &mut cmds {
-                (kill_func)(cmd.id(), sig);
+                unsafe {
+                    sig_kill(cmd.id(), sig);
+                }
             }
         }
     }
@@ -717,20 +731,20 @@ impl Output for OutFile {
 }
 
 #[no_mangle]
-pub extern "C" fn parser_kill(parser: *mut std::ffi::c_void, kill_func: extern "C" fn (u32, i32), sig: i32) {
+pub extern "C" fn parser_kill(parser: *mut std::ffi::c_void, sig: i32) {
     unsafe {
         let p: &mut CliParser = &mut *(parser as *mut CliParser);
 
-        p.kill(kill_func, sig);
+        p.kill(sig);
     }
 }
 
 #[no_mangle]
-pub extern "C" fn parser_stop(parser: *mut std::ffi::c_void, kill_func: extern "C" fn (u32, i32), sig: i32) {
+pub extern "C" fn parser_stop(parser: *mut std::ffi::c_void, sig: i32) {
     unsafe {
         let p: &mut CliParser = &mut *(parser as *mut CliParser);
 
-        p.kill(kill_func, sig);
+        p.kill(sig);
         p.stop();
     }
 }
