@@ -3,6 +3,7 @@
 #include <signal.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/wait.h>
 
 
 extern void parser_kill(void *, int);
@@ -27,12 +28,27 @@ void signal_setup(void *p)
     if (sigaction(SIGINT, &act, NULL)) {
         printf("Failed to bind SIGINT: %s\n", strerror(errno));
     }
+    if (sigaction(SIGQUIT, &act, NULL)) {
+        printf("Failed to bind SIGQUIT: %s\n", strerror(errno));
+    }
     act.sa_handler = sigstop_handler;
     if (sigaction(SIGTSTP, &act, NULL)) {
         printf("Failed to bind SIGTSTP: %s\n", strerror(errno));
     }
 }
 
+
+int signal_is_stopped(pid_t *pids, unsigned len)
+{
+    int is_stopped = 0;
+    for (unsigned i = 0U; i < len; i++) {
+        int status;
+        waitpid(pids[i], &status, WNOHANG | WUNTRACED);
+
+        is_stopped |= WIFSTOPPED(status);
+    }
+    return is_stopped;
+}
 
 void sig_kill(unsigned pid, int sig)
 {

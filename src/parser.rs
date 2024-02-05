@@ -79,6 +79,7 @@ pub struct CliParser<'a> {
 
 extern "C" {
     fn sig_kill(pid: u32, sig: i32);
+    fn signal_is_stopped(pids: *const u32, num_pids: u32) -> bool;
     static sig_CONT: i32;
 }
 
@@ -109,7 +110,6 @@ impl<'a> CliParser<'a> {
             lua_parser: lua_parser::LuaParser::init(&home::home_dir().unwrap().display().to_string()),
             should_wait: false
         };
-
         for (n, f) in Self::BUILTIN_COMMANDS {
             parser.bind_builtin_command(n, f);
         }
@@ -119,6 +119,10 @@ impl<'a> CliParser<'a> {
 
     pub fn bind_builtin_command(&mut self, command: &'a str, handler: BuiltInFunctionHandler<'a>) {
         self.builtin_handlers.insert(command, handler);
+    }
+
+    pub fn read_config<'b>(&mut self, params: &[&'b str], home_dir: &str) -> HashMap<&'b str, String> {
+        self.lua_parser.load_config(params, home_dir)
     }
     
     pub fn parse_inputs(&mut self, command: &str) -> Result<(), Errors> {
@@ -468,7 +472,7 @@ impl<'a> CliParser<'a> {
     }
 
     fn exit(&mut self, _command: &Command) {
-        
+
     }
 
     fn alias(&mut self, command: &Command) {
@@ -478,7 +482,7 @@ impl<'a> CliParser<'a> {
         if let Some(idx) = command[1].find('=') {
             let (name, cmd) = command[1].split_at(idx);
             self.aliases.insert(name.to_string(), cmd[1..].to_string());
-        } 
+        }
     }
 
     fn source(&mut self, command: &Command) {
@@ -566,7 +570,7 @@ impl<'a> CliParser<'a> {
                     match child.try_wait() {
                         Ok(None) => rem_children.push(child),
                         Ok(Some(status)) => {
-                            if let Some(sig) = status.stopped_signal() {
+                            if let Some(_) = status.stopped_signal() {
                                 unsafe {
                                     sig_kill(child.id(), sig_CONT);
                                 }
@@ -615,7 +619,6 @@ impl<'a> CliParser<'a> {
                     return true;
                 }
             }
-
             false
         } else {
             false
@@ -694,7 +697,12 @@ impl<'a> CliParser<'a> {
     }
 
     pub fn stop(&mut self) {
-        self.should_wait = false;
+        if let Some(children) = self.cur_job.take() {
+            let ids: Vec<_> = children.iter().map(|c| c.id()).collect();
+            unsafe {
+                self.should_wait = !signal_is_stopped(ids.as_ptr(), ids.len() as u32);
+            }
+        }
     }
 }
 

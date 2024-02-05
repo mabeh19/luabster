@@ -10,6 +10,8 @@ use rlua::{
     ToLua
 };
 
+use itertools::Itertools;
+
 use tempfile;
 use crate::Output;
 use crate::log;
@@ -59,6 +61,39 @@ impl LuaParser {
         }
 
         is_lua_command
+    }
+
+    pub fn load_config<'a>(&mut self, params: &[&'a str], home_dir: &str) -> HashMap<&'a str, String> {
+        let mut map = HashMap::new();
+        let res: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
+            let globals = lua_ctx.globals();
+            let package = globals.get::<&str, rlua::Table>("package")?;
+            let path: String = package.get("path")?;
+            let new_path = format!("{};{}/.luabster/?.lua", path, home_dir);
+            package.set("path", new_path)?;
+            _ = lua_ctx.load("LuabsterConfig = require\"config\"").exec()?;
+            params.iter().for_each(|p| {
+                let conf = globals.get("LuabsterConfig");
+                if conf.is_err() { return }
+                let conf: rlua::Table = conf.unwrap();
+                let mut subtables = p.split(".").collect_vec();
+                let key = subtables.pop().unwrap();
+                if let Ok(subtable) = subtables.iter().try_fold(conf, |acc, subtable| acc.get(*subtable) ) {
+                    match subtable.get::<&str, String> (key) {
+                        Ok(s) => {
+                            map.insert(*p, s);
+                        },
+                        Err(_) => {
+                            log!(LogLevel::Debug, "Config param not found: {}", p);
+                        }
+                    };
+                }
+            });
+
+            Ok(())
+        });
+        
+        map
     }
 
     pub fn append_to_variable(&mut self, command: &str) -> Option<Box<dyn Output>> {

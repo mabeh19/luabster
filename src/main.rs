@@ -4,6 +4,7 @@
 use std::{
     io::{self, Write},
     error::Error,
+    collections::HashMap,
 };
 use colored::Colorize;
 
@@ -13,6 +14,7 @@ pub mod log;
 pub mod termio;
 pub mod input_parser;
 pub mod completions;
+pub mod config;
 
 use crate::{
     parser::*,
@@ -27,6 +29,13 @@ const REPLACE_BASH_COMMAND: usize = 0;
 const REPLACE_LUA_COMMAND: usize = 1;
 const EDIT_COMMAND: usize = 2;
 const ABORT_COMMAND: usize = 3;
+
+const CONFIG_PARAMS: [(&str, config::Parser); 4] = [
+    ("prompt", config::parse_string),
+    ("colors.dir", config::parse_color),
+    ("colors.host", config::parse_color),
+    ("colors.user", config::parse_color),
+];
 
 extern "C" {
     fn signal_setup(p: *mut CliParser);
@@ -44,13 +53,26 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut input_parser = input_parser::InputParser::new(&home_dir, max_history_len);
 
     _ = cli_parser.parse_inputs(&format!("source {}/.luabster/luabster.conf", home_dir));
+    let configs = cli_parser.read_config(&CONFIG_PARAMS.map(|(p, _)| p), &home_dir);
+    let configs: HashMap<&str, config::ConfigType> = CONFIG_PARAMS.iter().filter_map(|(p, f)| {
+        if let Some(e) = configs.get(p) {
+            if let Some(v) = (f)(e) {
+                Some((e.as_str(), v))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }).collect();
+    log!(LogLevel::Debug, "{:?}", configs);
 
     unsafe {
         signal_setup(&mut cli_parser as *mut CliParser);
     }
     
     loop {
-        let prompt = get_prompt(&home_dir);
+        let prompt = get_prompt(&home_dir, &configs);
         display_prompt(&prompt);
 
         let mut command = input_parser.get_input();
@@ -138,7 +160,13 @@ fn get_git_branch(p: std::path::PathBuf) -> Option<String> {
     }
 }
 
-fn get_prompt(home_dir: &str) -> String {
+fn get_prompt(home_dir: &str, conf: &HashMap<&str, config::ConfigType>) -> String {
+    if let Some(custom_prompt) = conf.get("prompt") {
+        match custom_prompt {
+            config::ConfigType::String(s) => return s.to_string(),
+            _ => ()
+        }
+    }
     const USERNAME_KEY: &str = "USER";
     if let Ok(cur_dir) = std::env::current_dir() {
         if let Ok(hn) = hostname::get() {
