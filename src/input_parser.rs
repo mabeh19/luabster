@@ -5,6 +5,7 @@ use crate::parser::Errors;
 #[cfg(debug_assertions)]
 use crate::log::*;
 use crate::termio;
+use crate::config;
 
 use itertools::Itertools;
 
@@ -38,6 +39,31 @@ const KEYWORDS: [&'static str; 6] = [
     "coproc "
 ];
 
+macro_rules! history_prefix {
+    () => {
+        "history."
+    }
+}
+
+const MAX_HISTORY_LEN_NAME: &str = concat!(history_prefix!(), "length");
+
+impl<'a> config::Configurable<'a> for InputParser {
+    fn get_configs(&self) -> &'a [config::ConfigParam<'a>] {
+        &[
+            (MAX_HISTORY_LEN_NAME, &1000),
+        ]
+    }
+
+    fn with_config(&mut self, configs: &config::Configs) {
+        if let Some(c) = configs.get(MAX_HISTORY_LEN_NAME) {
+            match c {
+                config::ConfigType::Number(n) => self.load_history(*n as usize),
+                _ => (),
+            }
+        }
+    }
+}
+
 pub struct InputParser {
     history: VecDeque<String>,
     history_path: String
@@ -45,24 +71,16 @@ pub struct InputParser {
 
 impl InputParser {
     
-    pub fn new(home_dir: &str, max_history_len: usize) -> Self {
-        let mut me = Self {
+    pub fn new(home_dir: &str) -> Self {
+        Self {
             history: VecDeque::new(),
             history_path: format!("{}/{}", home_dir, HISTORY_FILE)
-        };
-
-        me.load_history(max_history_len);
-
-        me
+        }
     }
 
     fn load_history(&mut self, max_history_len: usize) {
         if let Ok(content) = fs::read_to_string(&self.history_path) {
-            self.history = content.split("\n").map(|substr| substr.to_owned()).collect();
-
-            if self.history.len() > max_history_len {
-                self.history.truncate(max_history_len);
-            }
+            self.history = content.split("\n").map(|substr| substr.to_owned()).take(max_history_len).collect();
         }
     }
 

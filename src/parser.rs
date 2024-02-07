@@ -12,6 +12,7 @@ use crate::log;
 #[cfg(debug_assertions)]
 use crate::log::*;
 use crate::lua_parser;
+use crate::config;
 
 use itertools::Itertools;
 use strsim;
@@ -86,15 +87,24 @@ extern "C" {
 const LUA_PREFIX: &str = "!";
 const STR_SIM_THRESHOLD: f64 = 0.95;
 
+
+impl<'a: 'b, 'b, 'c> config::ConfigurationLoader<'a, 'b> for CliParser<'c> {
+    fn load_config(&self, params: &[&'a str]) -> HashMap<&'b str, String> {
+        self.lua_parser.load_config(params, &home::home_dir().unwrap().to_string_lossy())
+    }
+}
+
+
 impl<'a> CliParser<'a> {
 
-    const BUILTIN_COMMANDS: [(&'static str, BuiltInFunctionHandler<'a>); 6] = [
+    const BUILTIN_COMMANDS: [(&'static str, BuiltInFunctionHandler<'a>); 7] = [
         ("exit", Self::exit),
         ("cd", Self::cd),
         ("fg", Self::fg),
         ("alias", Self::alias),
         ("source", Self::source),
         ("export", Self::export),
+        ("eval", Self::eval),
     ];
 
     pub fn get_builtin_commands() -> Vec<&'static str> {
@@ -537,6 +547,12 @@ impl<'a> CliParser<'a> {
         if let Some(job_index) = self.get_job_index(pid) {
             self.cur_job = Some(self.jobs.remove(job_index));
             self.wait_for_children_to_finish();
+        }
+    }
+
+    fn eval(&mut self, command: &Command) {
+        for cmd in &command[1..] {
+            self.parse_input(cmd);
         }
     }
 

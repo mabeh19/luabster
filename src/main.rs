@@ -1,12 +1,11 @@
 #![allow(dead_code)]
 #![feature(round_char_boundary)]
+#![feature(map_try_insert)]
 
 use std::{
     io::{self, Write},
-    error::Error,
-    collections::HashMap,
+    error::Error
 };
-use colored::Colorize;
 
 pub mod parser;
 pub mod lua_parser;
@@ -15,64 +14,56 @@ pub mod termio;
 pub mod input_parser;
 pub mod completions;
 pub mod config;
+pub mod prompt;
 
 use crate::{
     parser::*,
     log::*,
+    config::Configurable,
 };
 
 const WELCOME_MSG: &str = "";
-
-const PROMPT: &str = "LUABSTER ";
 
 const REPLACE_BASH_COMMAND: usize = 0;
 const REPLACE_LUA_COMMAND: usize = 1;
 const EDIT_COMMAND: usize = 2;
 const ABORT_COMMAND: usize = 3;
 
-const CONFIG_PARAMS: [(&str, config::Parser); 4] = [
-    ("prompt", config::parse_string),
-    ("colors.dir", config::parse_color),
-    ("colors.host", config::parse_color),
-    ("colors.user", config::parse_color),
-];
 
 extern "C" {
-    fn signal_setup(p: *mut CliParser);
+    fn signal_setup(p: *mut std::ffi::c_void);
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-
-    print!("{}", WELCOME_MSG);
-   
+fn main() -> Result<(), Box<dyn Error>> {   
     parse_args();
 
     let home_dir = home::home_dir().unwrap().display().to_string();
     let mut cli_parser = CliParser::new();
-    let max_history_len = 1000;
-    let mut input_parser = input_parser::InputParser::new(&home_dir, max_history_len);
+    let mut prompt = prompt::Prompt::new();
+    let mut input_parser = input_parser::InputParser::new(&home_dir);
 
     _ = cli_parser.parse_inputs(&format!("source {}/.luabster/luabster.conf", home_dir));
-    let configs = cli_parser.read_config(&CONFIG_PARAMS.map(|(p, _)| p), &home_dir);
-    let configs: HashMap<&str, config::ConfigType> = CONFIG_PARAMS.iter().filter_map(|(p, f)| {
-        if let Some(e) = configs.get(p) {
-            if let Some(v) = (f)(e) {
-                Some((e.as_str(), v))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }).collect();
-    log!(LogLevel::Debug, "{:?}", configs);
+
+
+    /*
+     * Load configs
+     */
+    let mut configurables = [
+        &mut prompt as &mut dyn Configurable,
+        &mut input_parser as &mut dyn Configurable,
+    ];
+
+    config::configure(&mut configurables, &cli_parser);
 
     unsafe {
-        signal_setup(&mut cli_parser as *mut CliParser);
+        signal_setup(&mut cli_parser as *mut CliParser as *mut std::ffi::c_void);
     }
+
+
+    print!("{}", WELCOME_MSG);
     
     loop {
-        let prompt = get_prompt(&home_dir, &configs);
+        let prompt = prompt.get(&home_dir);
         display_prompt(&prompt);
 
         let mut command = input_parser.get_input();
@@ -134,7 +125,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 
-
 fn parse_args() {
     let argv = std::env::args().collect::<Vec<String>>();
     for i in 0..argv.len() {
@@ -143,41 +133,6 @@ fn parse_args() {
             let level = argv[i + 1].clone();
             set_loglevel(level.parse().unwrap());
         }
-    }
-}
-
-fn get_git_branch(p: std::path::PathBuf) -> Option<String> {
-    match std::fs::read_to_string(format!("{}/.git/HEAD", p.display())) {
-        Ok(s) => {
-            let b = if s.starts_with("ref:") {
-                s.replace("ref: refs/heads/", "").replace("\n", "")
-            } else {
-                s[..7].to_string()
-            };
-            Some(format!(" \u{F09B} {}", b))
-        },
-        Err(_) => None
-    }
-}
-
-fn get_prompt(home_dir: &str, conf: &HashMap<&str, config::ConfigType>) -> String {
-    if let Some(custom_prompt) = conf.get("prompt") {
-        match custom_prompt {
-            config::ConfigType::String(s) => return s.to_string(),
-            _ => ()
-        }
-    }
-    const USERNAME_KEY: &str = "USER";
-    if let Ok(cur_dir) = std::env::current_dir() {
-        if let Ok(hn) = hostname::get() {
-            let current_dir = cur_dir.to_string_lossy().replace(home_dir, "~");
-            let cur_branch = get_git_branch(cur_dir).unwrap_or("".to_string());
-            format!("[{}@{}] {}{} \n>> ", std::env::var(USERNAME_KEY).unwrap().blue(), hn.into_string().unwrap().green(), current_dir.cyan(), cur_branch.red())
-        } else {
-            format!("[{}] {} >> ", PROMPT, cur_dir.display())
-        }  
-    } else {
-        format!("[{}] ??? >> ", PROMPT)
     }
 }
 

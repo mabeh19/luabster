@@ -34,12 +34,29 @@ impl LuaParser {
             VAR_DIRECTORY_PATH = Some(format!("{}/.luabster/var/", home_dir));
             std::fs::create_dir_all(VAR_DIRECTORY_PATH.as_ref().unwrap());
         }
+        std::fs::create_dir_all(&format!("{}/.luabster/packages/", home_dir));
 
-        Self {
+        let mut this = Self {
             vars: Vec::new(),
             var_dir: home_dir.to_owned(),
             lua: rlua::Lua::new(),
-        }
+        };
+
+        let _: Result<(), rlua::Error> = this.lua.context(|lua_ctx| {
+            _ = lua_ctx.load(&format!(r#"
+                function Add_Package(name)
+                    os.execute("luarocks --tree {0}/.luabster/packages install " .. name)
+                end
+
+                function Remove_Package(name)
+                    os.execute("luarocks --tree {0}/.luabster/packages remove " .. name)
+                end
+            "#, home_dir)).exec()?;
+
+            Ok(())
+        });
+
+        this
     }
 
     pub fn parse(&mut self, command: &str) -> bool {
@@ -63,14 +80,18 @@ impl LuaParser {
         is_lua_command
     }
 
-    pub fn load_config<'a>(&mut self, params: &[&'a str], home_dir: &str) -> HashMap<&'a str, String> {
+    pub fn load_config<'a>(&self, params: &[&'a str], home_dir: &str) -> HashMap<&'a str, String> {
         let mut map = HashMap::new();
         let res: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
             let globals = lua_ctx.globals();
             let package = globals.get::<&str, rlua::Table>("package")?;
             let path: String = package.get("path")?;
-            let new_path = format!("{};{}/.luabster/?.lua", path, home_dir);
-            package.set("path", new_path)?;
+            let cpath: String = package.get("cpath")?;
+            let lua_version = &globals.get::<&str, String>("_VERSION")?["Lua ".len()..];
+            _ = lua_ctx.load(&format!(r#"
+                package.path = package.path .. ";{1}/.luabster/?.lua;{1}/.luabster/packages/share/lua/{2}/?/init.lua;{1}/.luabster/packages/share/lua/{2}/?.lua"
+                package.cpath = package.cpath .. ";{}/.luabster/packages/lib/lua/{}/?.so"
+            "#, path, home_dir, lua_version)).exec()?;
             _ = lua_ctx.load("LuabsterConfig = require\"config\"").exec()?;
             params.iter().for_each(|p| {
                 let conf = globals.get("LuabsterConfig");
@@ -79,7 +100,7 @@ impl LuaParser {
                 let mut subtables = p.split(".").collect_vec();
                 let key = subtables.pop().unwrap();
                 if let Ok(subtable) = subtables.iter().try_fold(conf, |acc, subtable| acc.get(*subtable) ) {
-                    match subtable.get::<&str, String> (key) {
+                    match subtable.get::<&str, String>(key) {
                         Ok(s) => {
                             map.insert(*p, s);
                         },
