@@ -114,7 +114,7 @@ impl<'a> CliParser<'a> {
         ("source", Self::source),
         ("export", Self::export),
         ("eval", Self::eval),
-        ("laubster_update", Self::update_config),
+        ("luabster_update", Self::update_config),
     ];
 
     pub fn get_builtin_commands() -> Vec<&'static str> {
@@ -157,6 +157,7 @@ impl<'a> CliParser<'a> {
         let mut configurables = [
             &mut new_prompt as &mut dyn Configurable,
             &mut new_input_parser as &mut dyn Configurable,
+            &mut crate::termio::Termio as &mut dyn Configurable,
         ];
 
         config::configure(&mut configurables, self);

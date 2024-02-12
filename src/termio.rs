@@ -2,13 +2,36 @@ use std::{io::{stdout, Write}, collections::VecDeque};
 
 pub use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyEvent},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute, queue, style,
     terminal::{self, ClearType},
     Command, Result,
 };
 
-use crate::completions;
+use crate::{
+    completions,
+    config,
+    tag,
+};
+
+
+
+pub struct Termio;
+
+impl<'a> config::Configurable<'a> for Termio {
+    fn get_configs(&self) -> &'a [config::ConfigParam<'a>] {
+        & tag!{"termio",
+            "editor" => "nvim"
+        }
+    }
+
+    fn with_config(&mut self, configs: &config::Configs) {
+        match configs.get("termio.editor").unwrap() {
+            config::ConfigType::String(s) => std::env::set_var("EDITOR", s),
+            _ => ()
+        };
+    }
+}
 
 
 pub fn prompt_for_input(prompt: &str, retain: bool) -> Result<String> {
@@ -50,7 +73,18 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
 
     loop {
         if string == "!!" {
-            string = multiline_edit().unwrap_or(string);
+            string = 
+                if let Ok(mut s) = multiline_edit() {
+                    if s != "!" {
+                        break;
+                    }
+                    s.pop();
+                    visual_cursor_pos = visual_cursor_pos.saturating_sub(2);
+                    internal_cursor_pos = internal_cursor_pos.saturating_sub(2);
+                    s
+                } else {
+                    string
+                }
         }
         show_string(&string, start_position, visual_cursor_pos, clear_all)?;
         stdout().flush()?;
@@ -346,15 +380,10 @@ pub fn edit_command(command: &mut String) -> Result<()> {
     Ok(())
 }
 
-// called from raw mode only
 fn multiline_edit() -> Result<String> {
-    let mut out = String::new();
-
-    execute!(stdout(), terminal::EnterAlternateScreen)?;
-
-
-
-    execute!(stdout(), terminal::LeaveAlternateScreen)?;
+    let out = std::process::Command::new("vipe").arg("--suffix=lua").output()?;
+    let mut out = String::from_utf8(out.stdout).unwrap_or("".to_string());
+    out.insert(0, '!');
 
     Ok(out)
 }
