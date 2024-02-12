@@ -19,7 +19,6 @@ use crate::{
     input_parser,
     prompt,
     config::Configurable,
-    config::ConfigurationLoader,
 };
 
 use itertools::Itertools;
@@ -115,7 +114,7 @@ impl<'a> CliParser<'a> {
         ("source", Self::source),
         ("export", Self::export),
         ("eval", Self::eval),
-        ("luabster_update", Self::update_config),
+        ("laubster_update", Self::update_config),
     ];
 
     pub fn get_builtin_commands() -> Vec<&'static str> {
@@ -154,6 +153,7 @@ impl<'a> CliParser<'a> {
          */
         let mut new_prompt = self.prompt.clone();
         let mut new_input_parser = self.input_parser.clone();
+        
         let mut configurables = [
             &mut new_prompt as &mut dyn Configurable,
             &mut new_input_parser as &mut dyn Configurable,
@@ -164,7 +164,7 @@ impl<'a> CliParser<'a> {
         self.prompt = new_prompt;
         self.input_parser = new_input_parser;
     }
-    
+
     pub fn parse_inputs(&mut self, command: &str) -> Result<(), Errors> {
         if command.is_empty() {
             return Ok(());

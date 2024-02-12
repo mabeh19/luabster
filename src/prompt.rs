@@ -9,7 +9,7 @@ use colored::Colorize;
 
 type ColorHex = (u8,u8,u8);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Prompt<'a> {
     colors: HashMap<&'a str, ColorHex>,
     custom_prompt: Option<String>,

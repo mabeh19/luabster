@@ -61,7 +61,7 @@ impl<'a> config::Configurable<'a> for InputParser {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InputParser {
     history: VecDeque<String>,
     history_path: String

@@ -43,7 +43,12 @@ impl LuaParser {
         };
 
         let _: Result<(), rlua::Error> = this.lua.context(|lua_ctx| {
+            let globals = lua_ctx.globals();
+            let lua_version = &globals.get::<&str, String>("_VERSION")?["Lua ".len()..];
             _ = lua_ctx.load(&format!(r#"
+                package.path = package.path .. ";{0}/.luabster/?.lua;{0}/.luabster/packages/share/lua/{1}/?/init.lua;{0}/.luabster/packages/share/lua/{1}/?.lua"
+                package.cpath = package.cpath .. ";{0}/.luabster/packages/lib/lua/{1}/?.so"
+
                 function Add_Package(name)
                     os.execute("luarocks --tree {0}/.luabster/packages install " .. name)
                 end
@@ -51,7 +56,7 @@ impl LuaParser {
                 function Remove_Package(name)
                     os.execute("luarocks --tree {0}/.luabster/packages remove " .. name)
                 end
-            "#, home_dir)).exec()?;
+            "#, home_dir, lua_version)).exec()?;
 
             Ok(())
         });
@@ -84,15 +89,7 @@ impl LuaParser {
         let mut map = HashMap::new();
         let res: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
             let globals = lua_ctx.globals();
-            let package = globals.get::<&str, rlua::Table>("package")?;
-            let path: String = package.get("path")?;
-            let cpath: String = package.get("cpath")?;
-            let lua_version = &globals.get::<&str, String>("_VERSION")?["Lua ".len()..];
-            _ = lua_ctx.load(&format!(r#"
-                package.path = package.path .. ";{1}/.luabster/?.lua;{1}/.luabster/packages/share/lua/{2}/?/init.lua;{1}/.luabster/packages/share/lua/{2}/?.lua"
-                package.cpath = package.cpath .. ";{}/.luabster/packages/lib/lua/{}/?.so"
-            "#, path, home_dir, lua_version)).exec()?;
-            _ = lua_ctx.load("LuabsterConfig = require\"config\"").exec()?;
+            _ = lua_ctx.load(&format!("LuabsterConfig = dofile \"{}/.luabster/config.lua\"", home_dir)).exec()?;
             params.iter().for_each(|p| {
                 let conf = globals.get("LuabsterConfig");
                 if conf.is_err() { return }
@@ -113,6 +110,8 @@ impl LuaParser {
 
             Ok(())
         });
+
+        log!(LogLevel::Debug, "{:?}", res);
         
         map
     }
