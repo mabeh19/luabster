@@ -49,6 +49,9 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
     history.push_front(string.clone());
 
     loop {
+        if string == "!!" {
+            string = multiline_edit().unwrap_or(string);
+        }
         show_string(&string, start_position, visual_cursor_pos, clear_all)?;
         stdout().flush()?;
 
@@ -307,11 +310,9 @@ pub fn get_choice(options: &[&str], retain: bool) -> Result<usize> {
                 break;
             },
             KeyCode::Char(c) => {
-                if c.is_digit(10) {
-                    if let Some(d) = c.to_digit(10) {
-                        if d < options.len() as u32 {
-                            return Ok(d as usize);
-                        }
+                if let Some(d) = c.to_digit(10) {
+                    if d < options.len() as u32 {
+                        return Ok(d as usize);
                     }
                 }
             }
@@ -343,6 +344,19 @@ pub fn edit_command(command: &mut String) -> Result<()> {
     *command = get_line(Some(command), &mut VecDeque::new(), true)?;
 
     Ok(())
+}
+
+// called from raw mode only
+fn multiline_edit() -> Result<String> {
+    let mut out = String::new();
+
+    execute!(stdout(), terminal::EnterAlternateScreen)?;
+
+
+
+    execute!(stdout(), terminal::LeaveAlternateScreen)?;
+
+    Ok(out)
 }
 
 

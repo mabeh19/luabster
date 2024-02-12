@@ -40,7 +40,7 @@ fn get_similar_commands_in_dir(dir: &str, command: &str) -> Vec<String> {
         if let Ok(entry) = f {
             let option = entry.file_name().to_string_lossy().to_string();
 
-            if strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
+            if option.starts_with(command) {//strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
                 similar_commands.push(option);
             }
         }
@@ -53,7 +53,7 @@ fn get_similar_builtin_commands(command: &str) -> Vec<String> {
     let mut similar_commands = Vec::new();
 
     for option in parser::CliParser::get_builtin_commands() {
-        if strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
+        if option.starts_with(command) { //strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
             similar_commands.push(option.to_string());
         }
     }

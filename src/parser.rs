@@ -8,11 +8,19 @@ use std::{
     collections::HashMap
 };
 
-use crate::log;
+
 #[cfg(debug_assertions)]
 use crate::log::*;
-use crate::lua_parser;
-use crate::config;
+
+use crate::{
+    log,
+    lua_parser,
+    config,
+    input_parser,
+    prompt,
+    config::Configurable,
+    config::ConfigurationLoader,
+};
 
 use itertools::Itertools;
 use strsim;
@@ -76,6 +84,8 @@ pub struct CliParser<'a> {
     cur_job: Option<Job>,
     lua_parser: lua_parser::LuaParser,
     should_wait: bool,
+    pub input_parser: input_parser::InputParser,
+    pub prompt: prompt::Prompt<'a>,
 }
 
 extern "C" {
@@ -97,7 +107,7 @@ impl<'a: 'b, 'b, 'c> config::ConfigurationLoader<'a, 'b> for CliParser<'c> {
 
 impl<'a> CliParser<'a> {
 
-    const BUILTIN_COMMANDS: [(&'static str, BuiltInFunctionHandler<'a>); 7] = [
+    const BUILTIN_COMMANDS: [(&'static str, BuiltInFunctionHandler<'a>); 8] = [
         ("exit", Self::exit),
         ("cd", Self::cd),
         ("fg", Self::fg),
@@ -105,20 +115,23 @@ impl<'a> CliParser<'a> {
         ("source", Self::source),
         ("export", Self::export),
         ("eval", Self::eval),
+        ("luabster_update", Self::update_config),
     ];
 
     pub fn get_builtin_commands() -> Vec<&'static str> {
         Self::BUILTIN_COMMANDS.iter().map(|(n,_)| *n).collect()
     }
 
-    pub fn new() -> Self {
+    pub fn new(home_dir: &str) -> Self {
         let mut parser = Self {
             jobs: Vec::new(),
             builtin_handlers: HashMap::new(),
             aliases: HashMap::new(),
             cur_job: None,
-            lua_parser: lua_parser::LuaParser::init(&home::home_dir().unwrap().display().to_string()),
-            should_wait: false
+            lua_parser: lua_parser::LuaParser::init(home_dir),
+            should_wait: false,
+            input_parser: input_parser::InputParser::new(home_dir),
+            prompt: prompt::Prompt::new(),
         };
         for (n, f) in Self::BUILTIN_COMMANDS {
             parser.bind_builtin_command(n, f);
@@ -133,6 +146,23 @@ impl<'a> CliParser<'a> {
 
     pub fn read_config<'b>(&mut self, params: &[&'b str], home_dir: &str) -> HashMap<&'b str, String> {
         self.lua_parser.load_config(params, home_dir)
+    }
+
+    pub fn configure(&mut self) {
+        /*
+         * Load configs
+         */
+        let mut new_prompt = self.prompt.clone();
+        let mut new_input_parser = self.input_parser.clone();
+        let mut configurables = [
+            &mut new_prompt as &mut dyn Configurable,
+            &mut new_input_parser as &mut dyn Configurable,
+        ];
+
+        config::configure(&mut configurables, self);
+
+        self.prompt = new_prompt;
+        self.input_parser = new_input_parser;
     }
     
     pub fn parse_inputs(&mut self, command: &str) -> Result<(), Errors> {
@@ -556,6 +586,10 @@ impl<'a> CliParser<'a> {
         }
     }
 
+    fn update_config(&mut self, _: &Command) {
+        self.configure();
+    }
+
 
     fn is_builtin(command: &Command) -> bool {
         Self::BUILTIN_COMMANDS.map(|(n,_)| n).contains(&command[0].as_str())
@@ -645,8 +679,8 @@ impl<'a> CliParser<'a> {
 
         let dir_path = std::path::Path::new(dir);
 
-        if let Err(e) = std::fs::read_dir(dir_path) {
-            println!("{:?}", e);
+        if let Err(_) = std::fs::read_dir(dir_path) {
+            //println!("{:?}", e);
             return None;
         }
 

@@ -99,7 +99,7 @@ impl LuaParser {
                 let conf: rlua::Table = conf.unwrap();
                 let mut subtables = p.split(".").collect_vec();
                 let key = subtables.pop().unwrap();
-                if let Ok(subtable) = subtables.iter().try_fold(conf, |acc, subtable| acc.get(*subtable) ) {
+                if let Ok(subtable) = subtables.iter().try_fold(conf, |cur_table, subtable| cur_table.get(*subtable) ) {
                     match subtable.get::<&str, String>(key) {
                         Ok(s) => {
                             map.insert(*p, s);
@@ -115,6 +115,24 @@ impl LuaParser {
         });
         
         map
+    }
+
+    pub fn get_possible_correction(&self, token: &str) -> Option<String> {
+        let mut res: Option<String> = None;
+        //let _: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
+        //    let globals = lua_ctx.globals();
+
+        //    for pair in globals.pairs::<rlua::Value, rlua::Value>() {
+        //        let (p, v) = pair?;
+        //        if strsim::jaro_winkler(p, token) > 0.92 {
+        //            res =  Some(p);
+        //            break;
+        //        }
+        //    }
+        //    Ok(())
+        //});
+
+        res
     }
 
     pub fn append_to_variable(&mut self, command: &str) -> Option<Box<dyn Output>> {

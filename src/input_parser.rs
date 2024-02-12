@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 use std::fs;
-use crate::parser::Errors;
+use crate::{
+    parser::Errors,
+    tag,
+};
 
 #[cfg(debug_assertions)]
 use crate::log::*;
@@ -13,9 +16,6 @@ const HISTORY_FILE: &str = ".luabster/.history";
 const KEYWORDS_SCOPE_INCREASE: [&'static str; 8] = [
     "function",
     "if",
-    //"then",
-    //"else",
-    //"elif",
     "case",
     "for",
     "select",
@@ -39,23 +39,20 @@ const KEYWORDS: [&'static str; 6] = [
     "coproc "
 ];
 
-macro_rules! history_prefix {
-    () => {
-        "history."
-    }
-}
 
-const MAX_HISTORY_LEN_NAME: &str = concat!(history_prefix!(), "length");
 
 impl<'a> config::Configurable<'a> for InputParser {
     fn get_configs(&self) -> &'a [config::ConfigParam<'a>] {
-        &[
-            (MAX_HISTORY_LEN_NAME, &1000),
-        ]
+        &tag!{
+            "input",
+            ,{"history",
+                "length" => 1000,
+            },
+        }
     }
 
     fn with_config(&mut self, configs: &config::Configs) {
-        if let Some(c) = configs.get(MAX_HISTORY_LEN_NAME) {
+        if let Some(c) = configs.get("input.history.length") {
             match c {
                 config::ConfigType::Number(n) => self.load_history(*n as usize),
                 _ => (),
@@ -64,6 +61,7 @@ impl<'a> config::Configurable<'a> for InputParser {
     }
 }
 
+#[derive(Clone)]
 pub struct InputParser {
     history: VecDeque<String>,
     history_path: String
@@ -127,6 +125,11 @@ impl InputParser {
         }
     }
 
+    pub fn replace_last(&mut self, rep: &str) {
+        self.history.pop_front();
+        self.history.push_front(rep.to_string());
+    }
+
     fn get_line(&mut self) -> String {
 
         let input = termio::get_line(None, &mut self.history, true).unwrap();
@@ -155,13 +158,13 @@ fn contains_isolated(input: &str, pattern: &str) -> bool {
 
 fn contains_keyword(input: &str, scope_level: &mut usize) -> bool {
     for k in KEYWORDS_SCOPE_INCREASE {
-        if input.contains(k) {
+        if input.split_whitespace().contains(&k) {
             *scope_level = scope_level.saturating_add(1);
         }
     }
 
     for k in KEYWORDS_SCOPE_DECREASE {
-        if input.contains(k) {
+        if input.split_whitespace().contains(&k) {
             *scope_level = scope_level.saturating_sub(1);
         }
     }

@@ -19,7 +19,6 @@ pub mod prompt;
 use crate::{
     parser::*,
     log::*,
-    config::Configurable,
 };
 
 const WELCOME_MSG: &str = "";
@@ -38,22 +37,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     parse_args();
 
     let home_dir = home::home_dir().unwrap().display().to_string();
-    let mut cli_parser = CliParser::new();
-    let mut prompt = prompt::Prompt::new();
-    let mut input_parser = input_parser::InputParser::new(&home_dir);
+    let mut cli_parser = CliParser::new(&home_dir);
 
     _ = cli_parser.parse_inputs(&format!("source {}/.luabster/luabster.conf", home_dir));
 
 
-    /*
-     * Load configs
-     */
-    let mut configurables = [
-        &mut prompt as &mut dyn Configurable,
-        &mut input_parser as &mut dyn Configurable,
-    ];
-
-    config::configure(&mut configurables, &cli_parser);
+    cli_parser.configure();
 
     unsafe {
         signal_setup(&mut cli_parser as *mut CliParser as *mut std::ffi::c_void);
@@ -61,18 +50,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
     print!("{}", WELCOME_MSG);
-    
+
     loop {
-        let prompt = prompt.get(&home_dir);
+        let prompt = cli_parser.prompt.get(&home_dir);
         display_prompt(&prompt);
 
-        let mut command = input_parser.get_input();
+        let mut command = cli_parser.input_parser.get_input();
 
         log!(LogLevel::Debug, "Input received: {}", command);
 
-        match input_parser.check_quit(&command) {
+        match cli_parser.input_parser.check_quit(&command) {
             Err(_) => {
-                //println!("{:?}", e);
                 break;
             },
             Ok(_) => ()
@@ -81,7 +69,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         if let Err(e) = cli_parser.parse_inputs(&command) {
             match e {
                 Errors::NoProgramFound(p) => {
-                    //println!("Did you mean...");
                     let (b_corr, b_corr_p) = CliParser::get_possible_correction(&p);
 
                     //let l_corr = lua_parser.get_possible_correction(&p);
@@ -107,6 +94,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 if let Err(e) = cli_parser.parse_inputs(&command) {
                                     println!("{:?}", e);
                                 }
+
+                                cli_parser.input_parser.replace_last(&command);
                             }
                         },
                         Err(_) => {

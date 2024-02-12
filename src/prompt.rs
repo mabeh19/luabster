@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use crate::{
     config,
     log::*,
+    tag,
 };
 
 use colored::Colorize;
 
 type ColorHex = (u8,u8,u8);
 
+#[derive(Clone)]
 pub struct Prompt<'a> {
     colors: HashMap<&'a str, ColorHex>,
     custom_prompt: Option<String>,
@@ -40,22 +42,28 @@ const PROMPT: &str = "LUABSTER ";
 
 
 const fn prompt_configs<'a>() -> &'a [config::ConfigParam<'a>] {
-    &[
-        (DIR_CONFIG_NAME,           &DIR_DEFAULT_COLOR),
-        (USER_CONFIG_NAME,          &NAME_DEFAULT_COLOR),
-        (HOST_CONFIG_NAME,          &HOST_DEFAULT_COLOR),
-        (GIT_COLOR_CONFIG_NAME,     &GIT_DEFAULT_COLOR),
-        (GIT_ENABLE_CONFIG_NAME,    &GIT_DEFAULT_ENABLE),
-    ]
+    & tag!{ "prompt",
+        "show_git"      =>  GIT_DEFAULT_ENABLE,
+        { "colors",
+            "dir"       =>  DIR_DEFAULT_COLOR,
+            "user"      =>  NAME_DEFAULT_COLOR,
+            "host"      =>  HOST_DEFAULT_COLOR,
+            "git"       =>  GIT_DEFAULT_COLOR,
+        },
+    }
 }
 
 impl<'a> config::Configurable<'a> for Prompt<'a> {
     fn get_configs(&self) -> &'a [config::ConfigParam<'a>] {
-        prompt_configs()
+        let confs = prompt_configs();
+        
+        log!(LogLevel::Debug, "{:?}", confs.iter().map(|(p, _)| p).collect::<Vec<_>>());
+
+        confs
     }
 
     fn with_config(&mut self, configs: &config::Configs) {
-        if let Some(p) = configs.get("prompt") {
+        if let Some(p) = configs.get("prompt.custom_prompt") {
             match p {
                 config::ConfigType::String(s) => self.custom_prompt = Some(s.to_string()),
                 _ => (),

@@ -13,6 +13,16 @@ pub enum ConfigType {
     Toggle(bool),
 }
 
+#[macro_export]
+macro_rules! tag (
+    ( $base:literal, $( $n:literal => $d:expr ),* $(,)? $( ,{ $sub:literal, $( $ns:literal => $ds:expr ),* $(,)? } $(,)? )* ) => {
+        [
+            $( (concat!($base, ".", $n), &$d), )*
+            $( $( (concat!($base, ".", $sub, ".", $ns), &$ds), )* )*
+        ]
+    }
+);
+
 pub trait ConfigurationLoader<'a, 'b> {
     fn load_config(&self, params: &[&'a str]) -> HashMap<&'b str, String>;
 }
@@ -36,9 +46,10 @@ pub trait Configurable<'a> {
     fn with_config(&mut self, configs: &Configs);
 }
 
-pub fn build_configs<'a>(configs: HashMap<&str, String>, config_params: &[ConfigParam<'a>]) -> Configs<'a> {
+fn build_configs<'a>(configs: HashMap<&str, String>, config_params: &[ConfigParam<'a>]) -> Configs<'a> {
     config_params.iter().map(|(p, conf)| {
         if let Some(e) = configs.get(p) {
+            log!(LogLevel::Debug, "Parsing {} = {}", p, e);
             (*p, conf.from_str(e))
         } else {
             (*p, conf.convert())
@@ -49,7 +60,6 @@ pub fn build_configs<'a>(configs: HashMap<&str, String>, config_params: &[Config
 
 fn parse_color(s: &str) -> Option<ConfigType> {
     let s = &s[1..];
-    log!(LogLevel::Debug, "Parsing {}", s);
     if i32::from_str_radix(s, 16).is_err() {
         None
     } else {
