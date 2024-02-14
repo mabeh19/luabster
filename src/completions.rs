@@ -28,7 +28,7 @@ pub fn get_possibilities<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, Stri
 
     if replacements.len() > 1 {
         if let Some(common_prefix) = get_common_prefix(&mut replacements) {
-            if format!("{}{}", cmd, common_prefix) != to_complete {
+            if common_prefix != to_complete[cmd.len()..] {
                 replacements.clear();
                 replacements.push(common_prefix);
             }
