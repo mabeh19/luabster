@@ -13,7 +13,7 @@ const CMD_SIM_THRESHOLD: f64 = 0.9;
 
 
 pub fn get_possibilities<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, String, Vec<String>) {
-    match get_possibility_type(string, cursor_pos) {
+    let (to_complete, cmd, mut replacements) = match get_possibility_type(string, cursor_pos) {
         PosibilityType::Executable => {
             get_similar_commands(string) 
         },
@@ -24,7 +24,18 @@ pub fn get_possibilities<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, Stri
             get_files(string, cursor_pos)
             //get_command_specific_options(string, cursor_pos)
         }
+    };
+
+    if replacements.len() > 1 {
+        if let Some(common_prefix) = get_common_prefix(&mut replacements) {
+            if format!("{}{}", cmd, common_prefix) != to_complete {
+                replacements.clear();
+                replacements.push(common_prefix);
+            }
+        }
     }
+
+    (to_complete, cmd, replacements)
 }
 
 fn get_similar_commands_in_dir(dir: &str, command: &str) -> Vec<String> {
@@ -257,4 +268,12 @@ fn is_file_completion(string: &str, cursor_pos: u16) -> bool {
     let cursor_pos = cursor_pos as usize;
     //std::fs::write("extra_log.txt", string.as_bytes());
     string.ends_with(" ") || string.split_whitespace().nth(0).unwrap().len() < cursor_pos
+}
+
+fn get_common_prefix(replacements: &mut Vec<String>) -> Option<String> {
+    replacements.sort();
+    let first = replacements.first().unwrap();
+    let last = replacements.last().unwrap();
+
+    Some(first.chars().zip(last.chars()).take_while(|(a, b)| a == b).map(|(a,_)| a).collect::<String>())
 }

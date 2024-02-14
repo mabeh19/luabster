@@ -192,7 +192,9 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
     crossterm::terminal::disable_raw_mode()?;
 
     history.pop_front();
-    history.push_front(string.clone());
+    if !string.is_empty() {
+        history.push_front(string.clone());
+    }
 
     Ok(string)
 }
