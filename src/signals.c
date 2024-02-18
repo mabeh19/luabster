@@ -15,6 +15,10 @@ static void sigstop_handler(int sig);
 static volatile void *parser;
 
 const int sig_CONT = SIGCONT;
+const int sig_STOP = SIGSTOP;
+const int PROCESS_EXITED = -1;
+const int PROCESS_STOPPED = SIGSTOP;
+const int PROCESS_RUNNING = 0;
 
 void signal_setup(void *p)
 {
@@ -37,6 +41,21 @@ void signal_setup(void *p)
     }
 }
 
+int try_wait_process(pid_t pid)
+{
+    int status;
+    int id = waitpid(pid, &status, WNOHANG | WUNTRACED);
+
+    if (id != 0 && WIFEXITED(status)) {
+        return PROCESS_EXITED;
+    }
+    else if (WIFSTOPPED(status)) {
+        return PROCESS_STOPPED;
+    }
+    else {
+        return PROCESS_RUNNING;
+    }
+}
 
 int signal_is_stopped(pid_t *pids, unsigned len)
 {

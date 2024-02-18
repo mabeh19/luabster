@@ -186,7 +186,8 @@ fn new_line_expected(input: &mut String, scope_level: &mut usize) -> bool {
         return true;
     }
 
-    contains_keyword(input, scope_level) || *scope_level > 0
+    false
+    //contains_keyword(input, scope_level) || *scope_level > 0
 }
 
 

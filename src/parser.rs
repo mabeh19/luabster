@@ -3,7 +3,8 @@ use std::{
     io::{stdout, Write},
     fmt::{Display, Formatter, Result as FmtResult},
     os::unix::io::*,
-    os::unix::process::ExitStatusExt,
+    //os::unix::process::ExitStatusExt,
+    //os::fd::*,
     env,
     collections::HashMap
 };
@@ -27,7 +28,7 @@ use strsim;
 
 type Command = Vec<String>;
 type Commands = Vec<Command>;
-type Job = Vec<std::process::Child>;
+type Job = Vec<ChildProcess>;
 pub type BuiltInFunctionHandler<'a> = fn(&mut CliParser<'a>, &Command);
 
 #[derive(Clone, Debug)]
@@ -37,6 +38,34 @@ pub enum Errors {
     FileOverwriteError,
     FileAppendError,
     PipeFailure
+}
+
+#[derive(Debug)]
+enum ChildCommand {
+    Bash(std::process::Command),
+    Lua(Child)
+}
+
+#[derive(Debug)]
+enum ChildProcess {
+    Bash(std::process::Child),
+    Lua(Child),
+}
+
+
+const PIPE_READ: usize = 0;
+const PIPE_WRITE: usize = 1;
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct Child {
+    pub pid: i32,
+    pub stdin: [i32; 2],
+    pub stdout: [i32; 2],
+    pub stderr: [i32; 2],
+    pub cmd: *const std::ffi::c_uchar,
+    pub is_first: i32,
+    pub is_last: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,7 +119,12 @@ pub struct CliParser<'a> {
 extern "C" {
     fn sig_kill(pid: u32, sig: i32);
     fn signal_is_stopped(pids: *const u32, num_pids: u32) -> bool;
+    fn lua_runner_run_command(l: *mut std::ffi::c_void, c: *mut Child) -> Child;
+    fn try_wait_process(pid: u32) -> i32;
     static sig_CONT: i32;
+    static PROCESS_EXITED: i32;
+    static PROCESS_STOPPED: i32;
+    static PROCESS_RUNNING: i32;
 }
 
 const LUA_PREFIX: &str = "!";
@@ -190,7 +224,7 @@ impl<'a> CliParser<'a> {
 
             let mut commands = self.spawn_commands(&args.0);
 
-            match Self::execute_commands(&mut commands, &mut args.1) {
+            match self.execute_commands(&mut commands, &mut args.1) {
                 Ok(children) => {
                     if self.should_wait {
                         self.cur_job = Some(children);
@@ -407,21 +441,26 @@ impl<'a> CliParser<'a> {
         }
     }
 
-    fn spawn_commands(&mut self, commands: &Commands) -> Vec<std::process::Command> {
-        let mut spawned_commands: Vec<std::process::Command> = Vec::new();
+    fn spawn_commands(&mut self, commands: &Commands) -> Vec<ChildCommand> {
+        let mut spawned_commands: Vec<ChildCommand> = Vec::new();
 
         for cmd in commands {
-            if self.check_builtin_command(cmd) == true || self.lua_parser.parse(&cmd[0]) {
+            if self.check_builtin_command(cmd) == true {
                 continue;
             }
-            spawned_commands.push(Self::spawn_command(cmd));
+            if let Some(c) = self.lua_parser.parse(&cmd[0]) {
+                spawned_commands.push(ChildCommand::Lua(c));
+            }
+            else {
+                spawned_commands.push(ChildCommand::Bash(Self::spawn_command(cmd)));
+            }
         }
 
         spawned_commands
     }
 
     fn spawn_command(command: &Vec<String>) -> std::process::Command {
-        let mut process = std::process::Command::new(command[0].clone());
+        let mut process = std::process::Command::new(&command[0]);
         
         if command.len() > 1 {
             process.args(&command[1..]);
@@ -430,36 +469,50 @@ impl<'a> CliParser<'a> {
         process
     }
 
-    fn pipe_to_output(last_command: &mut std::process::Command, outfile: &mut Option<Box<dyn Output>>) -> Result<(), Errors> {
+    fn pipe_to_output(last_command: &mut ChildCommand, outfile: &mut Option<Box<dyn Output>>) -> Result<(), Errors> {
         
-        let file_stdio = outfile.as_mut().unwrap().to_stdio();
-        last_command.stdout(file_stdio);
-        
+        match last_command {
+            ChildCommand::Bash(last_command) => {    
+                let file_stdio = outfile.as_mut().unwrap().to_stdio();
+                last_command.stdout(file_stdio);
+            },
+            ChildCommand::Lua(last_command) => {
+                last_command.stdout[PIPE_READ] = outfile.as_mut().unwrap().to_fd();
+            }
+        }
+
         Ok(())
     }
 
-    fn execute_commands(commands: &mut Vec<std::process::Command>, outfile: &mut Option<Box<dyn Output>>) -> Result<Job, std::io::Error> {
-        let mut retval: Result<Vec<std::process::Child>, std::io::Error> = Err(std::io::Error::new(std::io::ErrorKind::Other, "No Children"));
-        
+    fn execute_commands(&mut self, commands: &mut Vec<ChildCommand>, outfile: &mut Option<Box<dyn Output>>) -> Result<Job, std::io::Error> {
+        let mut retval: Result<Vec<ChildProcess>, std::io::Error> = Err(std::io::Error::new(std::io::ErrorKind::Other, "No Children"));
+
         if commands.len() > 0 {
-            if let Ok((mut children, prev_stdout)) = Self::pipe_children(commands) {
-                let last_cmd: &mut std::process::Command = commands.last_mut().unwrap();
-                last_cmd.stdin(prev_stdout);
-                
+            if let Ok((mut children, prev_stdout)) = self.pipe_children(commands) {
+                let last_cmd: &mut ChildCommand = commands.last_mut().unwrap();
+
+                match last_cmd {
+                    ChildCommand::Bash(last_cmd) => {last_cmd.stdin(prev_stdout);},
+                    ChildCommand::Lua(last_cmd)  => ()
+                }
+
                 if outfile.is_some() {
                     if let Err(e) = Self::pipe_to_output(last_cmd, outfile) {
                         write!(stdout(), "{:?}", e)?;
                         return retval;
                     }
                 } else {
-                    last_cmd.stdout(std::process::Stdio::inherit());
+                    match last_cmd {
+                        ChildCommand::Bash(last_cmd) => {last_cmd.stdout(std::process::Stdio::inherit());},
+                        ChildCommand::Lua(last_cmd)  => ()
+                    }
                 }
 
-                match Self::execute_command(last_cmd) {
+                match self.execute_command(last_cmd) {
                     Ok(last_child) => children.push(last_child),
                     Err(e) => return Err(e)
                 };
-                retval = Ok(children);
+                retval = Ok(children); 
             }
         } 
 
@@ -467,31 +520,61 @@ impl<'a> CliParser<'a> {
     }
 
 
-    fn pipe_children(commands: &mut Vec<std::process::Command>) -> Result<(Vec<std::process::Child>, std::process::Stdio), std::io::Error> {
-        let mut children: Vec<std::process::Child> = Vec::new();
-        let mut prev_stdout: std::process::Stdio = std::process::Stdio::inherit();
+    fn pipe_children(&mut self, commands: &mut Vec<ChildCommand>) -> Result<(Vec<ChildProcess>, std::process::Stdio), std::io::Error> {
+        let mut children = Vec::new();
+        let mut prev_stdout = None;
 
         for i in 0..(commands.len() - 1) {
-            let cmd: &mut std::process::Command = &mut commands[i];
-            cmd.stdin(prev_stdout);
-            cmd.stdout(std::process::Stdio::piped());
-            cmd.stderr(std::process::Stdio::inherit());
+            let cmd = &mut commands[i];
+            match cmd {
+                ChildCommand::Bash(cmd) => {
+                    if let Some(prev_stdout) = prev_stdout {
+                        unsafe {
+                            cmd.stdin(std::process::Stdio::from_raw_fd(prev_stdout));
+                        }
+                    }
+                    cmd.stdout(std::process::Stdio::piped());
+                    cmd.stderr(std::process::Stdio::inherit());
+                },
+                ChildCommand::Lua(c) => {
+                    if let Some(prev_stdout) = prev_stdout {
+                        c.stdin[PIPE_WRITE] = prev_stdout;
+                    }
+                }
+            }
 
-            match Self::execute_command(cmd) {
-                Ok(mut child) => {
-                    let stdout: std::os::unix::io::RawFd = child.stdout.take().unwrap().into_raw_fd();
-                    children.push(child);
-                    unsafe {
-                        prev_stdout = std::process::Stdio::from_raw_fd(stdout);
+            match self.execute_command(cmd) {
+                Ok(child) => {
+                    // The repeat circumvents moving issues
+                    match child {
+                        ChildProcess::Bash(mut child) => {
+                            // Extra steps are performed to avoid premature closing of pipes
+                            let stdout = child.stdout.take().unwrap();
+                            let stdout_fd = stdout.as_raw_fd();
+                            child.stdout = Some(stdout);
+                            children.push(ChildProcess::Bash(child));
+                            prev_stdout = Some(stdout_fd);
+                        },
+                        ChildProcess::Lua(child) => {
+                            let stdout = child.stdout[PIPE_READ];
+                            children.push(ChildProcess::Lua(child));
+                            prev_stdout = Some(stdout);
+                        }
                     }
                 },
                 Err(e) => {
                     return Err(e); 
                 }
-            };
+            }
         }
-        
-        Ok((children, prev_stdout))
+
+        unsafe {
+            if let Some(prev_stdout) = prev_stdout {
+                Ok((children, std::process::Stdio::from_raw_fd(prev_stdout)))
+            } else {
+                Ok((children, std::process::Stdio::inherit()))
+            }
+        }
     }
 
     fn cd(self: &mut Self, command: &Command) {
@@ -564,7 +647,7 @@ impl<'a> CliParser<'a> {
         let pid = pid.unwrap();
         let mut index = 0;
         for children in &self.jobs {
-            if children.iter().fold(0, |acc, child| { if child.id() == pid { acc + 1 } else { acc } }) > 0 {
+            if children.iter().fold(0, |acc, child| { if Self::get_pid(child) == pid { acc + 1 } else { acc } }) > 0 {
                 return Some(index);
             } else {
                 index += 1;
@@ -607,27 +690,40 @@ impl<'a> CliParser<'a> {
         is_builtin
     }
 
-    fn execute_command(command: &mut std::process::Command) -> Result<std::process::Child, std::io::Error>{
+    fn execute_command(&mut self, command: &mut ChildCommand) -> Result<ChildProcess, std::io::Error>{
         log!(LogLevel::Debug, "Executing: {:?}", command);
         
-        command.spawn()
+        match command {
+            ChildCommand::Bash(command) => {
+                match command.spawn() {
+                    Ok(p) => Ok(ChildProcess::Bash(p)),
+                    Err(e) => Err(e)
+                }
+            },
+            ChildCommand::Lua(command)  => {
+                unsafe {
+                    Ok(ChildProcess::Lua(lua_runner_run_command(&mut self.lua_parser as *mut lua_parser::LuaParser as *mut std::ffi::c_void, command as *mut Child)))
+                }
+            }
+        }
     }
 
     fn wait_for_children_to_finish(&mut self) {
         while self.should_wait && self.cur_job.is_some() {
             let mut rem_children = Vec::new();
             if let Some(job) = self.cur_job.take() {
-                for mut child in job {
-                    match child.try_wait() {
+                for child in job {
+                    let pid = Self::get_pid(&child);
+                    match Self::try_wait(pid) {
                         Ok(None) => rem_children.push(child),
                         Ok(Some(status)) => {
-                            if let Some(_) = status.stopped_signal() {
-                                unsafe {
-                                    sig_kill(child.id(), sig_CONT);
+                            unsafe {
+                                if status == PROCESS_STOPPED {
+                                    sig_kill(pid, sig_CONT);
                                 }
                             }
                         },
-                        Err(_) => ()
+                        Err(_) => (),
                     };
                 }
 
@@ -640,6 +736,19 @@ impl<'a> CliParser<'a> {
         if let Some(job) = self.cur_job.take() {
             println!("placing in background");
             self.jobs.push(job);
+        }
+    }
+
+    fn try_wait(pid: u32) -> Result<Option<i32>, ()> {
+        unsafe {
+            let status = try_wait_process(pid);
+            if status == PROCESS_RUNNING {
+                    Ok(None)
+            } else if status == PROCESS_STOPPED {
+                Ok(Some(PROCESS_STOPPED))
+            } else {
+                Err(())
+            }
         }
     }
 
@@ -713,8 +822,7 @@ impl<'a> CliParser<'a> {
         }
     }
 
-    #[allow(non_snake_case)]
-    fn has_possible_correction_in_PATH(inp: &str) -> Option<(String, String)> {
+    fn has_possible_correction_in_path(inp: &str) -> Option<(String, String)> {
         if let Ok(path) = std::env::var("PATH") {
             for dir in path.split(":") {
                 if let Some(opt) = Self::check_for_possible_correction_in_dir(dir, inp) {
@@ -726,11 +834,18 @@ impl<'a> CliParser<'a> {
         None
     }
 
+    fn get_pid(child: &ChildProcess) -> u32 {
+        match child {
+            ChildProcess::Bash(p) => p.id(),
+            ChildProcess::Lua(p)  => p.pid as u32,
+        }
+    }
+
     pub fn get_possible_correction(inp: &str) -> (String, String) {
 
         if let Some(correction) = Self::has_possible_correction_in_same_dir(inp) {
             correction
-        } else if let Some(correction) = Self::has_possible_correction_in_PATH(inp) {
+        } else if let Some(correction) = Self::has_possible_correction_in_path(inp) {
             correction
         } else {
             ("No solution found".to_string(), "file system".to_string())
@@ -741,7 +856,7 @@ impl<'a> CliParser<'a> {
         if let Some(mut cmds) = self.cur_job.take() {
             for cmd in &mut cmds {
                 unsafe {
-                    sig_kill(cmd.id(), sig);
+                    sig_kill(Self::get_pid(cmd), sig);
                 }
             }
         }
@@ -749,7 +864,7 @@ impl<'a> CliParser<'a> {
 
     pub fn stop(&mut self) {
         if let Some(children) = self.cur_job.take() {
-            let ids: Vec<_> = children.iter().map(|c| c.id()).collect();
+            let ids: Vec<_> = children.iter().map(|c| Self::get_pid(c)).collect();
             unsafe {
                 self.should_wait = !signal_is_stopped(ids.as_ptr(), ids.len() as u32);
             }
@@ -757,9 +872,29 @@ impl<'a> CliParser<'a> {
     }
 }
 
+impl From<std::process::Child> for Child {
+    fn from(mut value: std::process::Child) -> Self {
+        let empty_string = std::ffi::CString::new("").unwrap();
+        let empty_string = empty_string.as_ptr();
+        let stdin = [0, if value.stdin.is_some() { value.stdin.take().unwrap().as_raw_fd() } else { 0 }];
+        let stdout = [if value.stdout.is_some() { value.stdout.take().unwrap().as_raw_fd() } else { 1 }, 1];        
+        let stderr = [if value.stderr.is_some() { value.stderr.take().unwrap().as_raw_fd() } else { 2 }, 2];
+        Self {
+            pid:    value.id() as i32,
+            stdin,
+            stdout,
+            stderr,
+            cmd: empty_string as *const u8,
+            is_first: 0,
+            is_last: 0
+        }
+    }
+}
+
 
 pub trait Output {
     fn to_stdio(&mut self) -> std::process::Stdio;
+    fn to_fd(&mut self) -> RawFd;
     fn close(self);
 }
 
@@ -782,6 +917,10 @@ impl OutFile {
 impl Output for OutFile {
     fn to_stdio(&mut self) -> std::process::Stdio {
         std::process::Stdio::from(self.file.try_clone().unwrap())
+    }
+
+    fn to_fd(&mut self) -> RawFd {
+        self.file.as_raw_fd()
     }
 
     fn close(self) {

@@ -3,6 +3,7 @@
 use std::{
     collections::HashMap,
     io::Write,
+    os::fd::{RawFd, AsRawFd},
 };
 
 use rlua::{
@@ -16,15 +17,20 @@ use tempfile;
 use crate::Output;
 use crate::log;
 use crate::log::*;
+use crate::parser;
 
 const LUA_PREFIX: &str = "!";
 static mut VAR_DIRECTORY_PATH: Option<String> = None; 
 
 
+extern "C" {
+    fn lua_runner_spawn_command(cmd: *const std::ffi::c_uchar, len: u32, is_first: i32, is_last: i32) -> parser::Child;
+}
+
 pub struct LuaParser {
     vars: Vec<(String, bool)>,
     var_dir: String,
-    lua: rlua::Lua,
+    pub lua: rlua::Lua,
 }
 
 impl LuaParser {
@@ -64,25 +70,24 @@ impl LuaParser {
         this
     }
 
-    pub fn parse(&mut self, command: &str) -> bool {
+    pub fn parse(&mut self, command: &str) -> Option<parser::Child> {
         let is_lua_command = command.starts_with(LUA_PREFIX);
 
         if is_lua_command {
             log!(LogLevel::Debug, "Running cmd {}", command);
             let command = strip_prefix(command);
 
-            let res: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
-                lua_ctx.load(&command).exec()?;
-                Ok(())
-            }); 
-
-            match res {
-                Ok(e) => (),
-                Err(e) => println!("{}", e),
-            };
+            //let res: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
+            //    lua_ctx.load(&command).exec()?;
+            //    Ok(())
+            //}); 
+            
+            unsafe {
+                return Some(lua_runner_spawn_command(command.as_ptr(), command.len() as u32, 1, 1));
+            }
         }
 
-        is_lua_command
+        None
     }
 
     pub fn load_config<'a>(&self, params: &[&'a str], home_dir: &str) -> HashMap<&'a str, String> {
@@ -114,6 +119,9 @@ impl LuaParser {
         log!(LogLevel::Debug, "{:?}", res);
         
         map
+    }
+
+    fn run_command(&mut self, cmd: &str) {
     }
 
     pub fn get_possible_correction(&self, token: &str) -> Option<String> {
@@ -207,6 +215,19 @@ impl LuaParser {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn run_lua(l: *mut std::ffi::c_void, cmd: *const std::ffi::c_uchar, cmdlen: i32) {
+    unsafe {
+        let l = &mut *(l as *mut LuaParser);
+        let cmd = String::from_raw_parts(cmd as *mut u8, cmdlen as usize, cmdlen as usize);
+
+        let res: Result<(), rlua::Error> = l.lua.context(|lua_ctx| {
+            lua_ctx.load(&cmd).exec()?;
+            Ok(())
+        });
+    }
+}
+
 fn strip_prefix(command: &str) -> String {
     command.trim_start_matches(LUA_PREFIX).to_string()
 }
@@ -232,6 +253,10 @@ impl LuaVar {
 impl Output for LuaVar {
     fn to_stdio(&mut self) -> std::process::Stdio {
         std::process::Stdio::from(self.file.try_clone().unwrap())
+    }
+
+    fn to_fd(&mut self) -> RawFd {
+        self.file.as_raw_fd()
     }
 
     fn close(self) {
