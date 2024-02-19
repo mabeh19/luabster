@@ -14,10 +14,14 @@ use rlua::{
 use itertools::Itertools;
 
 use tempfile;
-use crate::Output;
-use crate::log;
-use crate::log::*;
-use crate::parser;
+use crate::{
+    Output,
+    log,
+    log::*,
+    parser,
+    config,
+    tag,
+};
 
 const LUA_PREFIX: &str = "!";
 static mut VAR_DIRECTORY_PATH: Option<String> = None; 
@@ -27,10 +31,38 @@ extern "C" {
     fn lua_runner_spawn_command(cmd: *const std::ffi::c_uchar, len: u32, is_first: i32, is_last: i32) -> parser::Child;
 }
 
+const SCRIPTS_DIR: &str = "${HOME}/.luabster/scripts";
+
+impl<'a> config::Configurable<'a> for LuaScripts {
+    
+    fn get_configs(&self) -> &'a [config::ConfigParam<'a>] {
+        & tag!( "lua",
+            "scripts_dir" => SCRIPTS_DIR,
+        )
+    }
+
+    fn with_config(&mut self, configs: &config::Configs) {
+        if let Some(dir) = configs.get("lua.scripts_dir") {
+            match dir {
+                config::ConfigType::String(dir) => self.dir = dir.to_string(),
+                _ => ()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LuaScripts {
+    dir: String
+}
+
+
+#[derive(Debug)]
 pub struct LuaParser {
     vars: Vec<(String, bool)>,
     var_dir: String,
     pub lua: rlua::Lua,
+    pub scripts: LuaScripts,
 }
 
 impl LuaParser {
@@ -40,12 +72,16 @@ impl LuaParser {
             VAR_DIRECTORY_PATH = Some(format!("{}/.luabster/var/", home_dir));
             std::fs::create_dir_all(VAR_DIRECTORY_PATH.as_ref().unwrap());
         }
-        std::fs::create_dir_all(&format!("{}/.luabster/packages/", home_dir));
+
+        if let Ok(p) = shellexpand::full(SCRIPTS_DIR) {
+            std::fs::create_dir_all(p.to_string());
+        }
 
         let mut this = Self {
             vars: Vec::new(),
             var_dir: home_dir.to_owned(),
             lua: rlua::Lua::new(),
+            scripts: LuaScripts { dir: SCRIPTS_DIR.to_string() },
         };
 
         let _: Result<(), rlua::Error> = this.lua.context(|lua_ctx| {
@@ -70,7 +106,7 @@ impl LuaParser {
         this
     }
 
-    pub fn parse(&mut self, command: &str) -> Option<parser::Child> {
+    pub fn parse(&mut self, command: &str, first: bool, last: bool) -> Option<parser::Child> {
         let is_lua_command = command.starts_with(LUA_PREFIX);
 
         if is_lua_command {
@@ -83,7 +119,7 @@ impl LuaParser {
             //}); 
             
             unsafe {
-                return Some(lua_runner_spawn_command(command.as_ptr(), command.len() as u32, 1, 1));
+                return Some(lua_runner_spawn_command(command.as_ptr(), command.len() as u32, first.into(), last.into()));
             }
         }
 
@@ -148,6 +184,29 @@ impl LuaParser {
 
     pub fn output_to_variable(&mut self, command: &str) -> Option<Box<dyn Output>> {
         self.new_var(command)
+    }
+
+    pub fn load_scripts(&mut self) -> Result<(), std::io::Error> {
+        if let Ok(p) = shellexpand::full(&self.scripts.dir) {
+            let p = p.to_string();
+            log!(LogLevel::Debug, "Creating dir {}", p);
+            std::fs::create_dir_all(&p);
+
+            let fs = std::fs::read_dir(&p)?;
+
+            for f in fs {
+                if let Ok(f) = f {
+                    log!(LogLevel::Debug, "Loading {}", f.path().display());
+                    let code = std::fs::read_to_string(f.path())?;
+                    let _: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
+                        lua_ctx.load(&code).exec()?;
+                        Ok(())
+                    });
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn new_var(&mut self, command: &str) -> Option<Box<dyn Output>> {

@@ -166,9 +166,12 @@ impl<'a> CliParser<'a> {
             input_parser: input_parser::InputParser::new(home_dir),
             prompt: prompt::Prompt::new(),
         };
+
         for (n, f) in Self::BUILTIN_COMMANDS {
             parser.bind_builtin_command(n, f);
         }
+
+        parser.update_config(&Vec::new());
 
         parser
     }
@@ -181,23 +184,23 @@ impl<'a> CliParser<'a> {
         self.lua_parser.load_config(params, home_dir)
     }
 
-    pub fn configure(&mut self) {
-        /*
-         * Load configs
-         */
+    fn configure(&mut self) {
         let mut new_prompt = self.prompt.clone();
         let mut new_input_parser = self.input_parser.clone();
+        let mut lua_scripts = self.lua_parser.scripts.clone();
         
         let mut configurables = [
             &mut new_prompt as &mut dyn Configurable,
             &mut new_input_parser as &mut dyn Configurable,
             &mut crate::termio::Termio as &mut dyn Configurable,
+            &mut lua_scripts as &mut dyn Configurable,
         ];
 
         config::configure(&mut configurables, self);
 
         self.prompt = new_prompt;
         self.input_parser = new_input_parser;
+        self.lua_parser.scripts = lua_scripts;
     }
 
     pub fn parse_inputs(&mut self, command: &str) -> Result<(), Errors> {
@@ -444,11 +447,13 @@ impl<'a> CliParser<'a> {
     fn spawn_commands(&mut self, commands: &Commands) -> Vec<ChildCommand> {
         let mut spawned_commands: Vec<ChildCommand> = Vec::new();
 
-        for cmd in commands {
+        for (i, cmd) in commands.iter().enumerate() {
+            let first = i == 0;
+            let last = i == commands.len() - 1;
             if self.check_builtin_command(cmd) == true {
                 continue;
             }
-            if let Some(c) = self.lua_parser.parse(&cmd[0]) {
+            if let Some(c) = self.lua_parser.parse(&cmd[0], first, last) {
                 spawned_commands.push(ChildCommand::Lua(c));
             }
             else {
@@ -672,6 +677,7 @@ impl<'a> CliParser<'a> {
 
     fn update_config(&mut self, _: &Command) {
         self.configure();
+        _ = self.lua_parser.load_scripts();
     }
 
 

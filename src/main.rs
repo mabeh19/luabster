@@ -41,9 +41,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     _ = cli_parser.parse_inputs(&format!("source {}/.luabster/luabster.conf", home_dir));
 
-
-    cli_parser.configure();
-
     unsafe {
         signal_setup(&mut cli_parser as *mut CliParser as *mut std::ffi::c_void);
     }
