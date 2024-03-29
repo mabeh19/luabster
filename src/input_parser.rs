@@ -178,7 +178,7 @@ fn contains_keyword(input: &str, scope_level: &mut usize) -> bool {
     return false;
 }
 
-fn new_line_expected(input: &mut String, scope_level: &mut usize) -> bool {
+fn new_line_expected(input: &mut String, _scope_level: &mut usize) -> bool {
     log!(LogLevel::Debug, "Checking line: {}", input);
     
     if input.ends_with('\\') {

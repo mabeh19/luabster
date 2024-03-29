@@ -13,16 +13,16 @@ const CMD_SIM_THRESHOLD: f64 = 0.9;
 
 
 pub fn get_possibilities<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, String, Vec<String>) {
+    let to_replace = get_string_at(string, cursor_pos);
     let (to_complete, cmd, mut replacements) = match get_possibility_type(string, cursor_pos) {
         PosibilityType::Executable => {
             get_similar_commands(string) 
         },
         PosibilityType::File => {
-            get_files(string, cursor_pos)
+            get_files(to_replace)
         },
         PosibilityType::ProgramSpecific => {
-            get_files(string, cursor_pos)
-            //get_command_specific_options(string, cursor_pos)
+            get_files(to_replace)
         }
     };
 
@@ -35,7 +35,15 @@ pub fn get_possibilities<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, Stri
         }
     }
 
-    (to_complete, cmd, replacements)
+    (to_replace, reverse_tilde(&cmd), replacements)
+}
+
+fn reverse_tilde(s: &str) -> String {
+    if let Some(hd) = home::home_dir() {
+        s.replace(&hd.display().to_string(), "~")
+    } else {
+        s.to_string()
+    }
 }
 
 fn get_similar_commands_in_dir(dir: &str, command: &str) -> Vec<String> {
@@ -72,7 +80,7 @@ fn get_similar_builtin_commands(command: &str) -> Vec<String> {
     similar_commands
 }
 
-fn get_similar_commands<'a>(command: &'a str) -> (&'a str, String, Vec<String>) {
+fn get_similar_commands<'a>(command: &'a str) -> (String, String, Vec<String>) {
     let mut similar_commands = Vec::new();
 
     similar_commands.append(
@@ -97,7 +105,7 @@ fn get_similar_commands<'a>(command: &'a str) -> (&'a str, String, Vec<String>) 
     similar_commands.sort();
     similar_commands.dedup();
 
-    (command, String::new(), similar_commands)
+    (command.to_string(), String::new(), similar_commands)
 }
 
 
@@ -145,9 +153,9 @@ fn get_possibility_type(string: &str, cursor_pos: u16) -> PosibilityType {
     }
 }
 
-fn get_files<'a>(string: &'a str, cursor_pos: u16) -> (&'a str, String, Vec<String>) {
-    let to_complete = get_string_at(string, cursor_pos);
-    if let Ok(options) = get_files_in_dir(to_complete) {
+fn get_files<'a>(string: &'a str) -> (String, String, Vec<String>) {
+    let to_complete = shellexpand::tilde(&shellexpand::full(string).unwrap_or(string.into())).to_string();
+    if let Ok(options) = get_files_in_dir(&to_complete) {
         (to_complete, options.0, options.1)
     } else {
         (to_complete, String::new(), Vec::new())

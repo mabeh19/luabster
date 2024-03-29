@@ -154,7 +154,7 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
                 let possibilities = completions::get_possibilities(&string, internal_cursor_pos);
 
                 if possibilities.2.len() == 1 {
-                    let (to_replace, prefix, completion) = (possibilities.0, possibilities.1, possibilities.2[0].clone());
+                    let (to_replace, prefix, completion) = (possibilities.0, possibilities.1, &possibilities.2[0]);
                     let p = string.floor_char_boundary(internal_cursor_pos as usize - to_replace.len());
                     string.replace_range(p .. string.ceil_char_boundary(p + to_replace.len()), &format!("{}{}", prefix, completion));
                     visual_cursor_pos = string.chars().count() as u16;
