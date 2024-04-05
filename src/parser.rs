@@ -20,6 +20,7 @@ use crate::{
     input_parser,
     prompt,
     config::Configurable,
+    expand,
 };
 
 use itertools::Itertools;
@@ -636,7 +637,11 @@ impl<'a> CliParser<'a> {
 
     fn expand_string(s: &str) -> String {
         if let Ok(s) = shellexpand::env(s) {
-            s.to_string()
+            if let Ok(s) = expand::expand_bash(&s) {
+                s.to_string()
+            } else {
+                s.to_string()
+            }
         } else {
             s.to_string()
         }

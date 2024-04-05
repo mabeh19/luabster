@@ -15,6 +15,7 @@ pub mod input_parser;
 pub mod completions;
 pub mod config;
 pub mod prompt;
+pub mod expand;
 
 use crate::{
     parser::*,
