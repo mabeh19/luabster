@@ -8,9 +8,11 @@
 
 extern void parser_kill(void *, int);
 extern void parser_stop(void*, int);
+extern void parser_child_reaped(void*, int);
 
 static void sig_handler(int sig);
 static void sigstop_handler(int sig);
+static void sigchld_handler(int sig);
 
 static volatile void *parser;
 
@@ -39,6 +41,11 @@ void signal_setup(void *p)
     if (sigaction(SIGTSTP, &act, NULL)) {
         printf("Failed to bind SIGTSTP: %s\n", strerror(errno));
     }
+
+    act.sa_handler = sigchld_handler;
+    if (sigaction(SIGCHLD, &act, NULL)) {
+        printf("Failed to bind SIGCHLD: %s\n", strerror(errno));
+    }
 }
 
 int try_wait_process(pid_t pid)
@@ -46,7 +53,15 @@ int try_wait_process(pid_t pid)
     int status;
     int id = waitpid(pid, &status, WNOHANG | WUNTRACED);
 
-    if (id != 0 && WIFEXITED(status)) {
+    if (id == -1) {
+        switch (errno) {
+        case ECHILD:
+            return PROCESS_EXITED;
+        default:
+            break;
+        }
+    }
+    if (WIFEXITED(status)) {
         return PROCESS_EXITED;
     }
     else if (WIFSTOPPED(status)) {
@@ -71,8 +86,28 @@ int signal_is_stopped(pid_t *pids, unsigned len)
 
 void sig_kill(unsigned pid, int sig)
 {
-    printf("Sending sig %d to %u\n", sig, pid);
     kill(pid, sig);
+}
+
+
+void enter_critical_section()
+{
+    sigset_t sigs;
+    sigemptyset(&sigs);
+    sigaddset(&sigs, SIGCHLD);
+    sigaddset(&sigs, SIGINT);
+
+    sigprocmask(SIG_BLOCK, &sigs, NULL);
+}
+
+
+void exit_critical_section()
+{
+    sigset_t sigs;
+    sigemptyset(&sigs);
+    sigaddset(&sigs, SIGCHLD);
+    sigaddset(&sigs, SIGINT);
+    sigprocmask(SIG_UNBLOCK, &sigs, NULL);
 }
 
 static void sig_handler(int sig)
@@ -86,4 +121,22 @@ static void sigstop_handler(int sig)
 {
     if (!parser) return;
     parser_stop((void*)parser, sig);
+}
+
+static void sigchld_handler(int sig)
+{
+    if (!parser) return;
+    
+    const int ALL = -1;
+    int status;
+
+    // reap all zombies
+    for (;;) {
+        int res = waitpid(ALL, &status, WNOHANG);
+        if (WIFEXITED(status) && res > 0)
+            parser_child_reaped((void*)parser, res);
+        else 
+            break;
+    }
+
 }

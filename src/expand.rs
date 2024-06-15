@@ -1,4 +1,8 @@
 
+pub fn expand_all(s: &str) -> String {
+    shellexpand::full(s).unwrap_or(s.into()).to_string()
+}
+
 
 pub fn expand_bash(s: &str) -> Result<String, Box<dyn std::error::Error>> {
     let mut s = s.to_string();

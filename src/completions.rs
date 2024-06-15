@@ -59,7 +59,7 @@ fn get_similar_commands_in_dir(dir: &str, command: &str) -> Vec<String> {
         if let Ok(entry) = f {
             let option = entry.file_name().to_string_lossy().to_string();
 
-            if option.starts_with(command) {//strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
+            if option.starts_with(command) {
                 similar_commands.push(option);
             }
         }
@@ -72,7 +72,7 @@ fn get_similar_builtin_commands(command: &str) -> Vec<String> {
     let mut similar_commands = Vec::new();
 
     for option in parser::CliParser::get_builtin_commands() {
-        if option.starts_with(command) { //strsim::jaro_winkler(command, &option) > CMD_SIM_THRESHOLD {
+        if option.starts_with(command) {
             similar_commands.push(option.to_string());
         }
     }
@@ -154,7 +154,7 @@ fn get_possibility_type(string: &str, cursor_pos: u16) -> PosibilityType {
 }
 
 fn get_files<'a>(string: &'a str) -> (String, String, Vec<String>) {
-    let to_complete = shellexpand::tilde(&shellexpand::full(string).unwrap_or(string.into())).to_string();
+    let to_complete = crate::expand::expand_all(string);
     if let Ok(options) = get_files_in_dir(&to_complete) {
         (to_complete, options.0, options.1)
     } else {
@@ -173,7 +173,7 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
             // if no spaces are in the name, return easy solution
             let spaces = string.matches("\\ ").count();
             if spaces == 0 {
-                return string.split_whitespace().last().unwrap();
+                return string.split_whitespace().last().unwrap_or("");
             }
 
             let mut idx = cursor_pos as usize - 1;

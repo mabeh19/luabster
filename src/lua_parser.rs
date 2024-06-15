@@ -113,11 +113,6 @@ impl LuaParser {
             log!(LogLevel::Debug, "Running cmd {}", command);
             let command = strip_prefix(command);
 
-            //let res: Result<(), rlua::Error> = self.lua.context(|lua_ctx| {
-            //    lua_ctx.load(&command).exec()?;
-            //    Ok(())
-            //}); 
-            
             unsafe {
                 return Some(lua_runner_spawn_command(command.as_ptr(), command.len() as u32, first.into(), last.into()));
             }

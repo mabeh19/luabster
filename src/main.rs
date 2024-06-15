@@ -22,7 +22,9 @@ use crate::{
     log::*,
 };
 
-const WELCOME_MSG: &str = "";
+
+
+
 
 const REPLACE_BASH_COMMAND: usize = 0;
 const REPLACE_LUA_COMMAND: usize = 1;
@@ -34,11 +36,40 @@ extern "C" {
     fn signal_setup(p: *mut std::ffi::c_void);
 }
 
+
+struct General {
+    welcome_msg: Option<String>,
+}
+
+const fn general_conf<'a>() -> &'a [config::ConfigParam<'a>] {
+    & tag!{"general",
+        "welcome_message"   =>  ""
+    }
+}
+
+impl<'a> config::Configurable<'a> for General {
+    fn get_configs(&self) -> &'a [config::ConfigParam<'a>] {
+        general_conf()
+    }
+
+    fn with_config(&mut self, configs: &config::Configs) {
+        if let Some(m) = configs.get("general.welcome_message") {
+            match m {
+                config::ConfigType::String(s) => self.welcome_msg = Some(s.to_string()),
+                _ => (),
+            }
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {   
     parse_args();
 
     let home_dir = home::home_dir().unwrap().display().to_string();
     let mut cli_parser = CliParser::new(&home_dir);
+    let mut general_confs = General { welcome_msg: None };
+
+    config::configure(&mut [&mut general_confs], &cli_parser);
 
     _ = cli_parser.parse_inputs(&format!("source {}/.luabster/luabster.conf", home_dir));
 
@@ -46,8 +77,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         signal_setup(&mut cli_parser as *mut CliParser as *mut std::ffi::c_void);
     }
 
-
-    print!("{}", WELCOME_MSG);
+    if let Some(m) = general_confs.welcome_msg {
+        println!("{}", m);
+    }
 
     loop {
         let prompt = cli_parser.prompt.get(&home_dir);

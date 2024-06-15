@@ -160,7 +160,7 @@ pub fn get_line(start_string: Option<&str>, history: &mut VecDeque<String>, reta
                     visual_cursor_pos = string.chars().count() as u16;
                     internal_cursor_pos = string.len() as u16;
                 } else {
-                    start_position.1 -= show_possibilities(&possibilities.2, calc_cursor_screen_pos(start_position, visual_cursor_pos));
+                    start_position.1 = start_position.1.saturating_sub(show_possibilities(&possibilities.2, calc_cursor_screen_pos(start_position, visual_cursor_pos)) as u16);
                 }
 
                 None
@@ -262,8 +262,8 @@ fn show_possibilities(strings: &[String], cursor_position: (u16, u16)) -> u16 {
     if cursor_position.1 == terminal_size.1 - 1 {
         // on last line, make room
         let num_lines = strings.chunks(max_options_per_line).count() + 1;
-        
-        cursor_position.1 -= num_lines as u16;
+
+        cursor_position.1 = cursor_position.1.saturating_sub(num_lines as u16) as u16;
         _ = execute!(
             stdout(),
             style::Print("\n".repeat(num_lines)),
