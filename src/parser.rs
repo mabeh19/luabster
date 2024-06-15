@@ -764,7 +764,7 @@ impl<'a> CliParser<'a> {
 
     fn wait_for_children_to_finish(&mut self) {
         while unsafe { std::ptr::read_volatile(&self.should_wait) } {
-            if !self.get_current_job().is_some_and(|j| j != []) {
+            if !self.get_current_job().is_some_and(|j| !j.is_empty()) {
                 break;
             }
         }
@@ -871,9 +871,9 @@ impl<'a> CliParser<'a> {
         }
     }
 
-    fn get_current_job(&self) -> Option<&[i32]> {
+    fn get_current_job(&self) -> Option<&Vec<i32>> {
         if let Some(idx) = self.cur_job {
-            Some(&self.jobs[idx])
+            self.jobs.get(idx)
         } else {
             None
         }
