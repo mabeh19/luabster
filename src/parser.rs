@@ -1,6 +1,5 @@
 use core::mem;
 use std::{
-    io::{stdout, Write},
     fmt::{Display, Formatter, Result as FmtResult},
     os::unix::io::*,
     env,
@@ -577,7 +576,7 @@ impl<'a> CliParser<'a> {
                 },
                 ChildCommand::Lua(c) => {
                     if let Some(prev_stdout) = prev_stdout {
-                        c.stdin[PIPE_WRITE] = prev_stdout;
+                        c.stdin[PIPE_READ] = prev_stdout;
                     }
                 }
             }
