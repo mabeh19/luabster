@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Install lua
-      run: sudo apt-get install lua5.4
+      run: sudo apt-get install lua5.4 lua5.4-dev
     - uses: leafo/gh-actions-lua@v10.0.0
     - name: Build
       run: cargo build --verbose
