@@ -16,6 +16,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: leafo/gh-actions-lua@v10.0.0
     - name: Build
       run: cargo build --verbose
     - name: Run tests
