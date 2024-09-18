@@ -125,6 +125,7 @@ static void sigstop_handler(int sig)
 
 static void sigchld_handler(int sig)
 {
+    (void)sig;
     if (!parser) return;
     
     const int ALL = -1;

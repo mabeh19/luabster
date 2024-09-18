@@ -541,7 +541,7 @@ impl<'a> CliParser<'a> {
             } else {
                 match last_cmd {
                     ChildCommand::Bash(last_cmd) => {last_cmd.stdout(std::process::Stdio::inherit());},
-                    ChildCommand::Lua(last_cmd)  => ()
+                    ChildCommand::Lua(_)  => ()
                 }
             }
 
