@@ -19,6 +19,10 @@ jobs:
     - name: Install lua
       run: sudo apt-get install lua5.4 lua5.4-dev
     - uses: leafo/gh-actions-lua@v10.0.0
+    - name: Setup nightly toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
     - name: Build
       run: cargo build --verbose
     - name: Run tests
