@@ -195,7 +195,7 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
             idx = string.floor_char_boundary(idx - 1);
             let prev = string.floor_char_boundary(idx - 1);
 
-            if string.chars().nth(idx).unwrap() == ' ' && string.chars().nth(prev).unwrap() != '\\' {
+            if string.chars().nth(idx) == Some(' ') && string.chars().nth(prev) != Some('\\') {
                 break;
             }
         }
@@ -205,17 +205,20 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
 
     // continue forward until we reach end of word
     let mut end_of_word = 0;
+    let mut skip_next = false;
     for i in cursor_pos as usize.. string.len() {
-        end_of_word = i;
-        match string.get(i.. i+1) {
-            Some("\\ ") => continue,
-            None        => break,
-            _ => ()
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+
+        match string.chars().nth(i) {
+            Some('\\')          => skip_next = true,
+            Some(' ') | None    => break,
+            _                   => ()
         };
 
-        if string.get(i..i) == Some(" ") {
-            break;
-        }
+        end_of_word = i;
     }
 
     &string[idx .. end_of_word + 1]
@@ -350,7 +353,7 @@ fn test_get_string_at() {
     assert_eq!(get_string_at("ls", 0), "ls");
     assert_eq!(get_string_at("ls x", 4), "x");
     assert_eq!(get_string_at("ls Sub\\ directory", 9), "Sub\\ directory");
-    assert_eq!(get_string_at("ls Sub\\ directory", 5), "Sub\\ directory");
+    assert_eq!(get_string_at("ls Sub\\ directory -r", 5), "Sub\\ directory");
     assert_eq!(get_string_at("", 0), "");
     assert_eq!(get_string_at("ls ", 3), "");
 }
