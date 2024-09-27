@@ -274,8 +274,13 @@ fn is_command_completion(string: &str, cursor_pos: u16) -> bool {
 
 fn is_file_completion(string: &str, cursor_pos: u16) -> bool {
     let cursor_pos = cursor_pos as usize;
+    let string = string.trim_start();
     //std::fs::write("extra_log.txt", string.as_bytes());
-    string.ends_with(" ") || string.split_whitespace().nth(0).unwrap().len() < cursor_pos
+    if string.is_empty() { 
+        false 
+    } else {
+        string.ends_with(" ") || string.split_whitespace().nth(0).unwrap().len() < cursor_pos
+    }
 }
 
 fn get_common_prefix(replacements: &mut Vec<String>) -> Option<String> {
@@ -283,5 +288,41 @@ fn get_common_prefix(replacements: &mut Vec<String>) -> Option<String> {
     let first = replacements.first().unwrap();
     let last = replacements.last().unwrap();
 
-    Some(first.chars().zip(last.chars()).take_while(|(a, b)| a == b).map(|(a,_)| a).collect::<String>())
+    let prefix = first.chars().zip(last.chars()).take_while(|(a, b)| a == b).map(|(a,_)| a).collect::<String>();
+
+    if prefix != "" { Some(prefix) } else { None }
+}
+
+
+#[test]
+fn test_get_common_prefix() {
+    let mut items = [
+        "banana",
+        "bandana",
+        "bandolier",
+        "banjo"
+    ].into_iter().map(str::to_string).collect();
+
+    let prefix = get_common_prefix(&mut items);
+
+    assert!(prefix.is_some());
+    assert!(prefix.unwrap() == "ban");
+
+    let mut items = [
+        "banana",
+        "apple",
+        "orange",
+        "eggplant"
+    ].into_iter().map(str::to_string).collect();
+
+    let prefix = get_common_prefix(&mut items);
+
+    assert!(prefix.is_none());
+}
+
+#[test]
+fn test_is_file_completion() {
+    assert!(!is_file_completion("", 0));
+    assert!(!is_file_completion(" ", 0));
+    assert!(is_file_completion("ls ./C", 5));
 }
