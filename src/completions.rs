@@ -163,9 +163,6 @@ fn get_files<'a>(string: &'a str) -> (String, String, Vec<String>) {
 }
 
 fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
-    let mut retval: Option<&'a str> = None;
-    let mut len = 0;
-
     if cursor_pos == string.len() as u16 {
         if string.ends_with(" ") {
             return "";
@@ -190,7 +187,6 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
         }
     }
 
-
     let mut idx = 0;
     if cursor_pos > 0 {
         idx = cursor_pos as usize - 1;
@@ -208,23 +204,21 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
     }
 
     // continue forward until we reach end of word
-    let end_of_word = string[cursor_pos as usize..string.len()].chars().take_while(|c| *c != ' ').count();
+    let mut end_of_word = 0;
+    for i in cursor_pos as usize.. string.len() {
+        end_of_word = i;
+        match string.get(i.. i+1) {
+            Some("\\ ") => continue,
+            None        => break,
+            _ => ()
+        };
 
-    &string[idx .. cursor_pos as usize + end_of_word]
-
-/*
-    for s in string.split_whitespace() {
-        if retval.is_none() && cursor_pos <= (len + s.len()) as u16 {
-            retval = Some(s);
+        if string.get(i..i) == Some(" ") {
+            break;
         }
-        len += s.len();
     }
 
-    match retval {
-        Some(s) => s,
-        None    => " "
-    }
-*/
+    &string[idx .. end_of_word + 1]
 }
 
 fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
@@ -356,6 +350,7 @@ fn test_get_string_at() {
     assert_eq!(get_string_at("ls", 0), "ls");
     assert_eq!(get_string_at("ls x", 4), "x");
     assert_eq!(get_string_at("ls Sub\\ directory", 9), "Sub\\ directory");
+    assert_eq!(get_string_at("ls Sub\\ directory", 5), "Sub\\ directory");
     assert_eq!(get_string_at("", 0), "");
     assert_eq!(get_string_at("ls ", 3), "");
 }
