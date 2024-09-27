@@ -168,7 +168,7 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
 
     if cursor_pos == string.len() as u16 {
         if string.ends_with(" ") {
-            return " ";
+            return "";
         } else {
             // if no spaces are in the name, return easy solution
             let spaces = string.matches("\\ ").count();
@@ -190,6 +190,29 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
         }
     }
 
+
+    let mut idx = 0;
+    if cursor_pos > 0 {
+        idx = cursor_pos as usize - 1;
+        // backtrack search for space
+        while idx > 1 {
+            idx = string.floor_char_boundary(idx - 1);
+            let prev = string.floor_char_boundary(idx - 1);
+
+            if string.chars().nth(idx).unwrap() == ' ' && string.chars().nth(prev).unwrap() != '\\' {
+                break;
+            }
+        }
+
+        idx += 1;
+    }
+
+    // continue forward until we reach end of word
+    let end_of_word = string[cursor_pos as usize..string.len()].chars().take_while(|c| *c != ' ').count();
+
+    &string[idx .. cursor_pos as usize + end_of_word]
+
+/*
     for s in string.split_whitespace() {
         if retval.is_none() && cursor_pos <= (len + s.len()) as u16 {
             retval = Some(s);
@@ -201,6 +224,7 @@ fn get_string_at<'a>(string: &'a str, cursor_pos: u16) -> &'a str {
         Some(s) => s,
         None    => " "
     }
+*/
 }
 
 fn get_files_in_dir(path: &str) -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
@@ -275,7 +299,7 @@ fn is_command_completion(string: &str, cursor_pos: u16) -> bool {
 fn is_file_completion(string: &str, cursor_pos: u16) -> bool {
     let cursor_pos = cursor_pos as usize;
     let string = string.trim_start();
-    //std::fs::write("extra_log.txt", string.as_bytes());
+
     if string.is_empty() { 
         false 
     } else {
@@ -306,12 +330,12 @@ fn test_get_common_prefix() {
     let prefix = get_common_prefix(&mut items);
 
     assert!(prefix.is_some());
-    assert!(prefix.unwrap() == "ban");
+    assert_eq!(prefix.unwrap(), "ban");
 
     let mut items = [
         "banana",
         "apple",
-        "orange",
+        "cherry",
         "eggplant"
     ].into_iter().map(str::to_string).collect();
 
@@ -326,3 +350,15 @@ fn test_is_file_completion() {
     assert!(!is_file_completion(" ", 0));
     assert!(is_file_completion("ls ./C", 5));
 }
+
+#[test]
+fn test_get_string_at() {
+    assert_eq!(get_string_at("ls", 0), "ls");
+    assert_eq!(get_string_at("ls x", 4), "x");
+    assert_eq!(get_string_at("ls Sub\\ directory", 9), "Sub\\ directory");
+    assert_eq!(get_string_at("", 0), "");
+    assert_eq!(get_string_at("ls ", 3), "");
+}
+
+
+
